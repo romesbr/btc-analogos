@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Instalador do BTC · Análogos para Ubuntu (Oracle Cloud ou qualquer VPS).
+# Instalador do BTC · Análogos para Ubuntu (Vultr, Oracle Cloud ou qualquer VPS).
 # Uso: curl -fsSL https://raw.githubusercontent.com/romesbr/btc-analogos/main/install.sh | sudo bash
 set -euo pipefail
 REPO="${REPO:-https://github.com/romesbr/btc-analogos.git}"
@@ -77,6 +77,7 @@ for P in 80 443; do
   iptables -C INPUT -p tcp --dport $P -j ACCEPT 2>/dev/null || iptables -I INPUT 5 -p tcp --dport $P -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $P -j ACCEPT
 done
 netfilter-persistent save || true
+if command -v ufw >/dev/null && ufw status | grep -q "Status: active"; then ufw allow 80/tcp; ufw allow 443/tcp; fi
 systemctl restart caddy
 
 echo

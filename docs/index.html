@@ -193,7 +193,7 @@ function renderEstado() {
   const e = S.estado, box = $("estado-h"); box.replaceChildren();
   if (!e) { $("estado-meta").textContent = "Servidor ainda carregando o histórico (na primeira vez leva alguns minutos)…"; return; }
   const m = S.proximaAvaliacao ? Math.max(0, Math.round((S.proximaAvaliacao - Date.now()) / 60e3)) : null;
-  $("estado-meta").textContent = `Retrato da vela fechada às ${fdt(e.decTs)} (Brasília) · ${S.horasHistorico.toLocaleString("pt-BR")} horas de histórico · pesos: preço ${S.cfg.wPreco}, calendário ${S.cfg.wCal}, macro ${S.cfg.wMacro}` + (m != null ? ` · próxima avaliação em ~${m} min` : "");
+  $("estado-meta").textContent = `Retrato da vela fechada às ${fdt(e.decTs)} (Brasília) · ${S.horasHistorico.toLocaleString("pt-BR")} horas de histórico · tendência (24h × 72h): ${e.tendencia || "—"} · pesos: preço ${S.cfg.wPreco}, calendário ${S.cfg.wCal}, macro ${S.cfg.wMacro}` + (m != null ? ` · próxima avaliação em ~${m} min` : "");
   for (const H of HORIZONS) {
     const r = e.porH[H]; if (!r) continue; const d = r.decisao;
     const div = document.createElement("div");

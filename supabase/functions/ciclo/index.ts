@@ -112,6 +112,13 @@ Deno.serve(async (req) => {
     if (!ja.length || !estado.avaliacao || estado.avaliacao.decTs !== decTs) {
       const F = Core.build(bars, evMs, HORIZONS);
       const qi = F.n - 1;
+      // tendência em tempo maior: média de 24h vs 72h (velas de 1h)
+      const closes = bars.map((b) => b.c);
+      const media = (n: number) => closes.slice(-n).reduce((s, x) => s + x, 0) / n;
+      const s24 = media(24), s72 = media(72), cl = closes[closes.length - 1];
+      const tendencia = cl > s24 && s24 > s72 ? "ALTA" : cl < s24 && s24 < s72 ? "BAIXA" : "NEUTRA";
+      const ativos: number[] = cfg.horizontesAtivos ?? [4];
+      const filtroTend = cfg.filtroTendencia ?? true;
       // deno-lint-ignore no-explicit-any
       const porH: any = {};
       const abertas = await must(sb.from("sugestoes").select("horizonte").eq("status", "aberta"));
@@ -119,6 +126,10 @@ Deno.serve(async (req) => {
         const a = Core.analogs(F, qi, H, decTs, { p: cfg.wPreco, c: cfg.wCal, m: cfg.wMacro }, cfg.k);
         if (!a) continue;
         const d = Core.decide(a, price, now, evMs, cfg);
+        if (d.sugere && !ativos.includes(H)) { d.sugere = false; d.motivos.push(`prazo de ${H} h desligado`); }
+        if (d.sugere && filtroTend && !((d.side === "COMPRA" && tendencia === "ALTA") || (d.side === "VENDA" && tendencia === "BAIXA"))) {
+          d.sugere = false; d.motivos.push(`${d.side.toLowerCase()} contra a tendência (${tendencia})`);
+        }
         const fresh = now - decTs <= 20 * 60e3;
         // deno-lint-ignore no-explicit-any
         const jaAberta = abertas.some((s: any) => s.horizonte === H);
@@ -133,7 +144,7 @@ Deno.serve(async (req) => {
         porH[H] = { mean: a.mean, median: a.median, up: a.up, sd: a.sd, decisao: d, motivo,
           vizinhos: a.neighbors.slice(0, 12).map((x: { i: number; dec: number; dist: number }) => ({ dec: x.dec, dist: x.dist, f1: F.fwd[1][x.i], f4: F.fwd[4][x.i] })) };
       }
-      estado.avaliacao = { decTs, avaliadoEm: now, porH };
+      estado.avaliacao = { decTs, avaliadoEm: now, porH, tendencia, media24: s24, media72: s72 };
       if (src.oi) {
         try { const r = await getJSON(`${src.base}/openInterest?symbol=BTCUSDT`); await must(sb.from("open_interest").upsert({ t: +r.time, oi: +r.openInterest, preco: price })); }
         catch (e) { log("Open interest indisponível: " + e); }

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>BTC · Análogos</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#272b35; --fg:#e7e9ee; --mut:#9aa1ad; --up:#22c55e; --down:#ef4444; --acc:#60a5fa; --warn:#f59e0b; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f6f7f9; --panel:#fff; --line:#e3e6ea; --fg:#14171c; --mut:#5d6470; } }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:1100px; margin:0 auto; padding:12px; display:flex; flex-direction:column; gap:12px; }
+  header { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
+  h1 { font-size:18px; margin:0; font-weight:600; }
+  .pill { font-size:12px; padding:3px 8px; border-radius:999px; background:var(--panel); border:1px solid var(--line); color:var(--mut); }
+  .pill.ok { color:var(--up); } .pill.bad { color:var(--down); } .pill.warn { color:var(--warn); }
+  .price { font-size:20px; font-variant-numeric:tabular-nums; font-weight:600; margin-left:auto; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .card h2 { font-size:14px; margin:0 0 8px; font-weight:600; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; }
+  .mut { color:var(--mut); font-size:12px; }
+  .big { font-size:22px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .up { color:var(--up); } .down { color:var(--down); }
+  .sug { margin-top:6px; padding:8px; border-radius:8px; border:1px dashed var(--line); font-size:13px; }
+  .sug.on { border-style:solid; border-color:var(--acc); }
+  #chart { height:360px; position:relative; }
+  .tabs button, .btn { background:transparent; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 10px; font:inherit; font-size:12px; cursor:pointer; text-decoration:none; }
+  .tabs button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .tw { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums; }
+  th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--mut); font-weight:500; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; }
+  .kpi .l { color:var(--mut); font-size:11px; } .kpi .v { font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; }
+  details summary { cursor:pointer; color:var(--mut); }
+  .cfg { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; margin-top:8px; }
+  .cfg label { font-size:12px; color:var(--mut); display:flex; flex-direction:column; gap:2px; }
+  .cfg input { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 6px; font:inherit; }
+  #log { font-size:11px; color:var(--mut); max-height:160px; overflow:auto; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<div class="wrap" id="login" style="max-width:380px;margin-top:10vh">
+  <section class="card">
+    <h2>BTC · Análogos</h2>
+    <div class="mut" style="margin-bottom:8px">Acesso privado.</div>
+    <div class="cfg" style="grid-template-columns:1fr">
+      <label>E-mail<input id="lemail" type="email" autocomplete="username"></label>
+      <label>Senha<input id="lpass" type="password" autocomplete="current-password"></label>
+    </div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" id="bentrar">Entrar</button>
+      <button class="btn" id="bcriar">Primeiro acesso: criar senha</button>
+    </div>
+    <div class="mut" id="lmsg" style="margin-top:8px"></div>
+  </section>
+</div>
+<div class="wrap" id="app" hidden>
+  <header>
+    <h1>BTC · Análogos</h1>
+    <span id="src" class="pill">conectando…</span>
+    <span id="srv" class="pill">servidor: —</span>
+    <span id="price" class="price">—</span>
+    <button class="btn" id="sair">Sair</button>
+  </header>
+
+  <section class="card">
+    <h2>Estado atual · o que aconteceu depois dos momentos mais parecidos</h2>
+    <div class="mut" id="estado-meta">Carregando…</div>
+    <div class="grid2" id="estado-h"></div>
+  </section>
+
+  <section class="card">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <h2 style="margin:0">Gráfico e sugestões</h2>
+      <div class="tabs" id="tabs"><button data-i="15m">15 min</button><button data-i="1h" class="on">1 h</button></div>
+      <span class="mut">▲ compra · ▼ venda · azul = aberta · verde = lucro · vermelho = prejuízo</span>
+    </div>
+    <div id="chart"></div>
+  </section>
+
+  <section class="card">
+    <h2>Placar (líquido de taxas e funding)</h2>
+    <div class="kpis" id="kpis"></div>
+  </section>
+
+  <section class="card">
+    <h2>Sugestões</h2>
+    <div class="tw"><table><thead><tr><th>Criada</th><th>Prazo</th><th>Lado</th><th>Entrada</th><th>Stop</th><th>Alvo</th><th>Concord.</th><th>Status</th><th>Saída</th><th>Líquido</th></tr></thead><tbody id="tb"></tbody></table></div>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" id="csv">Baixar CSV</button>
+      <button class="btn" id="reset">Zerar placar</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Momentos parecidos agora (prazo 4 h)</h2>
+    <div class="tw"><table><thead><tr><th>Data/hora (Brasília)</th><th>Distância</th><th>1 h depois</th><th>4 h depois</th></tr></thead><tbody id="nb"></tbody></table></div>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Configurações e registro do servidor</summary>
+      <div class="cfg" id="cfg"></div>
+      <div style="margin-top:8px"><button class="btn" id="savecfg">Salvar configurações</button> <span class="mut" id="cfgmsg"></span></div>
+      <div id="log" style="margin-top:8px"></div>
+    </details>
+  </section>
+  <div class="mut">Simulação sem dinheiro real. Não é recomendação de investimento.</div>
+</div>
+
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+const SB_URL = "https://dvvlnoorrwxioaxpgqaw.supabase.co";
+const SB_KEY = "sb_publishable_eit6xHv1Z32qUwCJbQRpVQ_RB9yqiFF";
+const sb = createClient(SB_URL, SB_KEY);
+const CFG_LABELS = { k: "Nº de momentos parecidos (K)", wPreco: "Peso: formato do preço", wCal: "Peso: calendário (mês, dia, hora)", wMacro: "Peso: anúncios macro",
+  minAgreement: "Concordância mínima (0–1)", costMargin: "Margem sobre o custo (×)", stopMult: "Stop (× volatilidade esperada)", targetMult: "Alvo (× volatilidade esperada)",
+  feeTaker: "Taxa por lado (0,0005 = 0,05%)", macroBlockMin: "Bloqueio antes de anúncio (min)" };
+const HORIZONS = [1, 4];
+const fmtBR = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+const fdt = ms => ms ? fmtBR.format(new Date(ms)) : "—";
+const fnum = (x, d = 2) => (x == null || !isFinite(x)) ? "—" : x.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
+const fpct = (x, d = 2) => (x == null || !isFinite(x)) ? "—" : (x > 0 ? "+" : "") + fnum(x, d) + "%";
+const $ = id => document.getElementById(id);
+let S = null, chart = null, series = null, chartInterval = "1h", chartBars = [], priceLines = [], cfgRendered = false;
+
+async function token() { const { data } = await sb.auth.getSession(); return data.session ? data.session.access_token : null; }
+const num = x => x == null ? x : Number(x);
+function mapSug(s) { return { id: s.id, decTs: num(s.dec_ts), criada: num(s.criada), horizonte: s.horizonte, lado: s.lado, entrada: s.entrada, stop: s.stop, alvo: s.alvo,
+  expira: num(s.expira), prev: s.prev, concordancia: s.concordancia, status: s.status, saida: s.saida, saidaT: num(s.saida_t), motivo: s.motivo, bruto: s.bruto, taxas: s.taxas, funding: s.funding, liquido: s.liquido }; }
+async function loadState() {
+  const [e, s, c, a] = await Promise.all([sb.from("estado").select("dados").eq("id", 1).maybeSingle(), sb.from("sugestoes").select("*").order("criada", { ascending: true }),
+    sb.from("config").select("dados").eq("id", 1).maybeSingle(), sb.from("avaliacoes").select("dec_ts").eq("h", 1)]);
+  if (e.error || s.error || c.error) throw new Error((e.error || s.error || c.error).message);
+  if (!e.data && !c.data) throw new Error("sem permissão");
+  const d = (e.data && e.data.dados) || {};
+  return { status: d.status || "aguardando", fonte: d.fonte, fonteId: d.fonteId, ultimoCiclo: d.ultimoCiclo || 0, preco: d.preco, horasHistorico: d.horasHistorico || 0,
+    proximaAvaliacao: d.proximaAvaliacao, cfg: c.data ? c.data.dados : {}, estado: d.avaliacao || null, sugestoes: (s.data || []).map(mapSug),
+    horasAvaliadas: (a.data || []).length, logs: d.logs || [] };
+}
+
+// ---------- gráfico ----------
+const tzOff = -new Date().getTimezoneOffset() * 60;
+function initChart() {
+  if (!window.LightweightCharts) { $("chart").textContent = "Não foi possível carregar a biblioteca do gráfico."; return; }
+  const css = getComputedStyle(document.documentElement);
+  chart = LightweightCharts.createChart($("chart"), { autoSize: true,
+    layout: { background: { color: "transparent" }, textColor: css.getPropertyValue("--mut").trim() },
+    grid: { vertLines: { color: css.getPropertyValue("--line").trim() }, horzLines: { color: css.getPropertyValue("--line").trim() } },
+    timeScale: { timeVisible: true, secondsVisible: false }, rightPriceScale: { borderVisible: false } });
+  series = chart.addCandlestickSeries({ upColor: "#22c55e", downColor: "#ef4444", borderVisible: false, wickUpColor: "#22c55e", wickDownColor: "#ef4444" });
+}
+async function loadChart(fit) {
+  if (!series) return;
+  try {
+    const r = await fetch(SB_URL + "/functions/v1/candles?interval=" + chartInterval, { headers: { Authorization: "Bearer " + await token(), apikey: SB_KEY, "x-region": "sa-east-1" } });
+    const rows = await r.json();
+    chartBars = rows.map(b => ({ time: b.t / 1000 + tzOff, open: b.o, high: b.h, low: b.l, close: b.c }));
+    series.setData(chartBars); renderMarkers(); if (fit) chart.timeScale().scrollToRealTime();
+  } catch (e) { console.log(e); }
+}
+function renderMarkers() {
+  if (!series || !S) return;
+  const step = chartInterval === "1h" ? 3600 : 900, t0 = chartBars.length ? chartBars[0].time : 0, mk = [];
+  for (const s of S.sugestoes) {
+    const bt = Math.floor((s.criada / 1000) / step) * step + tzOff; if (bt < t0) continue;
+    const color = s.status === "aberta" ? "#60a5fa" : (s.liquido > 0 ? "#22c55e" : "#ef4444");
+    mk.push({ time: bt, position: s.lado === "COMPRA" ? "belowBar" : "aboveBar", color, shape: s.lado === "COMPRA" ? "arrowUp" : "arrowDown",
+      text: `${s.horizonte}h${s.status === "fechada" ? " " + fpct(s.liquido, 1) : ""}` });
+  }
+  mk.sort((a, b) => a.time - b.time); series.setMarkers(mk);
+  for (const pl of priceLines) series.removePriceLine(pl); priceLines = [];
+  for (const s of S.sugestoes.filter(x => x.status === "aberta")) {
+    priceLines.push(series.createPriceLine({ price: s.stop, color: "#ef4444", lineStyle: 2, lineWidth: 1, title: `stop ${s.horizonte}h` }));
+    priceLines.push(series.createPriceLine({ price: s.alvo, color: "#22c55e", lineStyle: 2, lineWidth: 1, title: `alvo ${s.horizonte}h` }));
+    priceLines.push(series.createPriceLine({ price: s.entrada, color: "#60a5fa", lineStyle: 0, lineWidth: 1, title: `entrada ${s.horizonte}h` }));
+  }
+}
+
+// ---------- telas ----------
+function renderHeader() {
+  $("src").textContent = S.fonte || "sem fonte"; $("src").className = "pill " + (S.fonteId === "fut" ? "ok" : S.fonteId ? "warn" : "bad");
+  const age = Math.round((Date.now() - S.ultimoCiclo) / 1000);
+  const min = Math.round(age / 60); const ok = S.status === "ok" && age < 20 * 60;
+  $("srv").textContent = ok ? `servidor: ok (último ciclo há ${min} min)` : `servidor: ${S.status}${age >= 20 * 60 ? ` (último ciclo há ${min} min)` : ""}`; $("srv").className = "pill " + (ok ? "ok" : "bad");
+  $("price").textContent = S.preco ? "US$ " + fnum(S.preco, 1) : "—";
+}
+function renderEstado() {
+  const e = S.estado, box = $("estado-h"); box.replaceChildren();
+  if (!e) { $("estado-meta").textContent = "Servidor ainda carregando o histórico (na primeira vez leva alguns minutos)…"; return; }
+  const m = S.proximaAvaliacao ? Math.max(0, Math.round((S.proximaAvaliacao - Date.now()) / 60e3)) : null;
+  $("estado-meta").textContent = `Retrato da vela fechada às ${fdt(e.decTs)} (Brasília) · ${S.horasHistorico.toLocaleString("pt-BR")} horas de histórico · pesos: preço ${S.cfg.wPreco}, calendário ${S.cfg.wCal}, macro ${S.cfg.wMacro}` + (m != null ? ` · próxima avaliação em ~${m} min` : "");
+  for (const H of HORIZONS) {
+    const r = e.porH[H]; if (!r) continue; const d = r.decisao;
+    const div = document.createElement("div");
+    div.innerHTML = `<div class="mut">Próximas ${H} h</div><div class="big"></div><div class="mut lines"></div><div class="sug"></div>`;
+    const big = div.querySelector(".big"); big.textContent = `${fpct(r.mean)} (média)`; big.className = "big " + (r.mean > 0 ? "up" : "down");
+    div.querySelector(".lines").textContent = `Mediana ${fpct(r.median)} · ${fnum(r.up * 100, 0)}% dos casos subiram · oscilação típica ±${fnum(r.sd, 2)}%`;
+    const sg = div.querySelector(".sug"); sg.classList.toggle("on", !!d.sugere);
+    sg.textContent = d.sugere ? `Sinal: ${d.side} · entrada ${fnum(d.entrada, 1)} · stop ${fnum(d.stop, 1)} · alvo ${fnum(d.alvo, 1)} — ${r.motivo}` : `Sem sugestão: ${r.motivo}`;
+    box.appendChild(div);
+  }
+  const tb = $("nb"); tb.replaceChildren();
+  const r4 = e.porH[4];
+  if (r4) for (const nb of r4.vizinhos) {
+    const tr = tb.insertRow();
+    [fdt(nb.dec), fnum(nb.dist, 2), fpct(nb.f1), fpct(nb.f4)].forEach((v, j) => { const td = tr.insertCell(); td.textContent = v; if (j >= 2) td.className = (j === 2 ? nb.f1 : nb.f4) > 0 ? "up" : "down"; });
+  }
+}
+function renderTable() {
+  const tb = $("tb"); tb.replaceChildren();
+  for (const s of [...S.sugestoes].reverse().slice(0, 300)) {
+    const tr = tb.insertRow();
+    const vals = [fdt(s.criada), s.horizonte + " h", s.lado, fnum(s.entrada, 1), fnum(s.stop, 1), fnum(s.alvo, 1), fnum(s.concordancia * 100, 0) + "%",
+      s.status === "aberta" ? "aberta" : s.motivo, s.saida ? fnum(s.saida, 1) : "—", s.status === "fechada" ? fpct(s.liquido) : "—"];
+    vals.forEach((v, j) => { const td = tr.insertCell(); td.textContent = v; if (j === 2) td.className = s.lado === "COMPRA" ? "up" : "down"; if (j === 9 && s.status === "fechada") td.className = s.liquido > 0 ? "up" : "down"; });
+  }
+  if (!S.sugestoes.length) { const td = tb.insertRow().insertCell(); td.colSpan = 10; td.className = "mut"; td.textContent = "Nenhuma sugestão ainda. Elas surgem no fechamento de cada hora, quando os casos parecidos apontam forte para um lado."; }
+}
+function renderKpis() {
+  const box = $("kpis"); box.replaceChildren();
+  const groups = [["Todas", S.sugestoes], ...HORIZONS.map(H => [`Prazo ${H} h`, S.sugestoes.filter(s => s.horizonte === H)])];
+  for (const [nome, list] of groups) {
+    const fe = list.filter(s => s.status === "fechada"), soma = fe.reduce((a, s) => a + s.liquido, 0);
+    const acerto = fe.length ? fe.filter(s => s.liquido > 0).length / fe.length * 100 : null;
+    for (const [l, v, cls] of [[`${nome} · fechadas`, String(fe.length)], [`${nome} · acerto`, acerto == null ? "—" : fnum(acerto, 0) + "%"],
+      [`${nome} · soma líquida`, fpct(soma), fe.length ? (soma > 0 ? "up" : "down") : ""], [`${nome} · abertas`, String(list.length - fe.length)]]) {
+      const d = document.createElement("div"); d.className = "kpi"; d.innerHTML = '<div class="l"></div><div class="v"></div>';
+      d.querySelector(".l").textContent = l; const vv = d.querySelector(".v"); vv.textContent = v; if (cls) vv.classList.add(cls); box.appendChild(d);
+    }
+  }
+  const d = document.createElement("div"); d.className = "kpi"; d.innerHTML = '<div class="l">Horas avaliadas</div><div class="v"></div>'; d.querySelector(".v").textContent = String(S.horasAvaliadas); box.appendChild(d);
+}
+function renderCfg() {
+  if (cfgRendered) return; cfgRendered = true;
+  const box = $("cfg"); box.replaceChildren();
+  for (const k of Object.keys(CFG_LABELS)) {
+    const l = document.createElement("label"); l.textContent = CFG_LABELS[k];
+    const i = document.createElement("input"); i.type = "number"; i.step = "any"; i.value = S.cfg[k]; i.dataset.k = k; l.appendChild(i); box.appendChild(l);
+  }
+}
+async function refresh() {
+  try {
+    S = await loadState();
+    renderHeader(); renderEstado(); renderTable(); renderKpis(); renderCfg(); renderMarkers();
+    $("log").textContent = S.logs.join("\n");
+  } catch (e) { $("srv").textContent = "servidor: sem resposta"; $("srv").className = "pill bad"; }
+}
+$("savecfg").onclick = async () => {
+  const body = {}; for (const i of document.querySelectorAll("#cfg input")) body[i.dataset.k] = parseFloat(String(i.value).replace(",", "."));
+  for (const k in body) if (!isFinite(body[k])) delete body[k];
+  const { error } = await sb.from("config").update({ dados: Object.assign({}, S.cfg, body) }).eq("id", 1);
+  $("cfgmsg").textContent = error ? "Erro ao salvar: " + error.message : "Salvo. Vale a partir da próxima avaliação."; refresh();
+};
+$("reset").onclick = async () => { if (confirm("Apagar todas as sugestões e o placar?")) { await sb.from("sugestoes").delete().neq("id", ""); await sb.from("avaliacoes").delete().gte("dec_ts", 0); refresh(); } };
+$("csv").onclick = () => {
+  const cols = ["criada", "horizonte", "lado", "entrada", "stop", "alvo", "prev", "concordancia", "status", "motivo", "saida", "saidaT", "bruto", "taxas", "funding", "liquido"];
+  const lines = [cols.join(";")].concat(S.sugestoes.map(s => cols.map(c => { const v = s[c]; if (c === "criada" || c === "saidaT") return v ? fdt(v) : ""; return v == null ? "" : String(v).replace(".", ","); }).join(";")));
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv" })); a.download = "sugestoes_btc.csv"; a.click();
+};
+for (const b of document.querySelectorAll("#tabs button")) b.onclick = () => { chartInterval = b.dataset.i; document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b)); loadChart(true); };
+
+let started = false;
+async function start() {
+  $("login").hidden = true; $("app").hidden = false;
+  if (started) return; started = true;
+  initChart();
+  await refresh(); loadChart(true);
+  setInterval(refresh, 60000);
+  setInterval(() => loadChart(false), 30000);
+}
+async function checkAccess() {
+  try { await loadState(); return true; } catch (e) { return false; }
+}
+async function afterLogin() {
+  if (await checkAccess()) start();
+  else { $("lmsg").textContent = "Este e-mail não tem permissão de acesso."; await sb.auth.signOut(); }
+}
+$("bentrar").onclick = async () => {
+  $("lmsg").textContent = "Entrando…";
+  const { error } = await sb.auth.signInWithPassword({ email: $("lemail").value.trim(), password: $("lpass").value });
+  if (error) { $("lmsg").textContent = error.message.includes("confirm") ? "Confirme o e-mail pelo link que a Supabase enviou e tente de novo." : "E-mail ou senha incorretos."; return; }
+  afterLogin();
+};
+$("bcriar").onclick = async () => {
+  const email = $("lemail").value.trim(), password = $("lpass").value;
+  if (password.length < 8) { $("lmsg").textContent = "Use uma senha com pelo menos 8 caracteres."; return; }
+  const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.href.split("#")[0] } });
+  if (error) { $("lmsg").textContent = "Erro: " + error.message; return; }
+  if (data.session) afterLogin(); else $("lmsg").textContent = "Enviamos um link de confirmação para " + email + ". Clique nele e depois volte aqui para entrar.";
+};
+$("lpass").addEventListener("keydown", e => { if (e.key === "Enter") $("bentrar").click(); });
+$("sair").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+const { data: sess } = await sb.auth.getSession();
+if (sess.session) afterLogin();
+sb.auth.onAuthStateChange((ev, session) => { if (ev === "SIGNED_IN" && session && !started) afterLogin(); });
+</script>
+</body>
+</html>

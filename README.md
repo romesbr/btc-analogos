@@ -11,7 +11,14 @@ Também grava open interest e funding a cada hora para análises futuras.
 
 **Simulação sem dinheiro real. Não é recomendação de investimento.**
 
-## Instalação na Oracle Cloud (gratuito)
+## Como está rodando hoje (Supabase, sem servidor)
+
+- **Função `ciclo`** (Supabase Edge Function, região São Paulo) roda a cada 15 min pelo `pg_cron`: atualiza velas e funding, avalia cada hora fechada, cria sugestões e julga as abertas.
+- **Banco** (projeto Supabase `btc-analogos`): velas, sugestões, avaliações, funding, open interest, estado e configurações. Leitura só para e-mails da tabela `acesso`.
+- **Site**: `docs/index.html`, publicado pelo GitHub Pages, com login do Supabase.
+- `supabase/functions/` guarda o código das funções; `server.js` + `install.sh` são a alternativa para rodar numa VPS.
+
+## Alternativa: VPS (Oracle Cloud, Vultr etc.)
 
 ### 1. Criar a conta
 - Acesse cloud.oracle.com → "Sign up". Na **Home Region**, escolha **Brazil East (São Paulo)** (não dá para trocar depois).

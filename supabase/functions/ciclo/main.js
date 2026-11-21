@@ -1,7 +1,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import Core from "./core.js";
 import EVENTOS from "./eventos.js";
-const H1 = 36e5, HORIZONS = [1, 4], START_MS = 15679008e5;
+const H1 = 36e5, HORIZONS = [1, 4], BUILD_H = [1, 4, 48], START_MS = 15679008e5;
 const SOURCES = [
   { id: "fut", nome: "Binance Futuros \xB7 BTCUSDT perp\xE9tuo", base: "https://fapi.binance.com/fapi/v1", funding: true, oi: true, max: 1500 },
   { id: "spot", nome: "Binance Spot \xB7 BTCUSDT (reserva, sem funding)", base: "https://data-api.binance.vision/api/v3", funding: false, oi: false, max: 1e3 }
@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
     estado.proximaAvaliacao = decTs + H1;
     const ja = await must(sb.from("avaliacoes").select("h").eq("dec_ts", decTs));
     if (!ja.length || !estado.avaliacao || estado.avaliacao.decTs !== decTs) {
-      const F = Core.build(bars, evMs, HORIZONS);
+      const F = Core.build(bars, evMs, BUILD_H);
       const qi = F.n - 1;
       const closes = bars.map((b) => b.c);
       const media = (n) => closes.slice(-n).reduce((s, x) => s + x, 0) / n;
@@ -116,7 +116,7 @@ Deno.serve(async (req) => {
       const ativos = cfg.horizontesAtivos ?? [4];
       const filtroTend = cfg.filtroTendencia ?? true;
       const porH = {};
-      const abertas2 = await must(sb.from("sugestoes").select("horizonte").eq("status", "aberta"));
+      const abertas2 = await must(sb.from("sugestoes").select("horizonte,hipotese").eq("status", "aberta"));
       for (const H of HORIZONS) {
         const a = Core.analogs(F, qi, H, decTs, { p: cfg.wPreco, c: cfg.wCal, m: cfg.wMacro }, cfg.k);
         if (!a) continue;
@@ -130,7 +130,7 @@ Deno.serve(async (req) => {
           d.motivos.push(`${d.side.toLowerCase()} contra a tend\xEAncia (${tendencia})`);
         }
         const fresh = now - decTs <= 20 * 6e4;
-        const jaAberta = abertas2.some((s) => s.horizonte === H);
+        const jaAberta = abertas2.some((s) => s.horizonte === H && s.hipotese === "analogos-1h4h");
         let motivo = d.motivos.join("; "), sugeriu = false;
         if (!ja.length && d.sugere && fresh && !jaAberta) {
           await must(sb.from("sugestoes").upsert({
@@ -145,7 +145,10 @@ Deno.serve(async (req) => {
             expira: d.expira,
             prev: a.mean,
             concordancia: d.agree,
-            status: "aberta"
+            status: "aberta",
+            hipotese: "analogos-1h4h",
+            ativo: "BTCUSDT",
+            tipo: "operacao"
           }));
           sugeriu = true;
           motivo = "sugest\xE3o criada";
@@ -163,6 +166,47 @@ Deno.serve(async (req) => {
           vizinhos: a.neighbors.slice(0, 12).map((x) => ({ dec: x.dec, dist: x.dist, f1: F.fwd[1][x.i], f4: F.fwd[4][x.i] }))
         };
       }
+      const s80 = media(80), s200 = media(200);
+      const tend4h = cl > s80 && s80 > s200 ? 1 : cl < s80 && s80 < s200 ? -1 : 0;
+      let swing = { tend4h: tend4h === 1 ? "ALTA" : tend4h === -1 ? "BAIXA" : "NEUTRA" };
+      if (Math.round(decTs / H1) % 4 === 0) {
+        const a48 = Core.analogs(F, qi, 48, decTs, { p: cfg.wPreco, c: cfg.wCal, m: cfg.wMacro }, cfg.k);
+        if (a48) {
+          const lado = a48.mean > 0 ? 1 : -1, agree = a48.mean > 0 ? a48.up : 1 - a48.up;
+          const rets = closes.slice(-721).map((x, i, arr) => i ? Math.log(x / arr[i - 1]) : 0).slice(1);
+          const mu = rets.reduce((s, x) => s + x, 0) / rets.length;
+          const sigH = Math.sqrt(rets.reduce((s, x) => s + (x - mu) ** 2, 0) / (rets.length - 1)) * Math.sqrt(48);
+          const motivos = [];
+          if (agree < 0.6) motivos.push(`concord\xE2ncia ${(agree * 100).toFixed(0)}% < 60%`);
+          if (Math.abs(a48.mean) < 0.15) motivos.push(`movimento esperado ${Math.abs(a48.mean).toFixed(2).replace(".", ",")}% < 0,15%`);
+          if (lado !== tend4h) motivos.push(`contra ou sem tend\xEAncia de 4h (${swing.tend4h})`);
+          const swAberta = abertas2.some((s) => s.hipotese === "swing-analogos-t4h");
+          if (!motivos.length && swAberta) motivos.push("j\xE1 existe swing aberto");
+          if (!motivos.length && now - decTs > 20 * 6e4) motivos.push("fora da janela de decis\xE3o");
+          if (!motivos.length) {
+            await must(sb.from("sugestoes").upsert({
+              id: `swing_${decTs}`,
+              dec_ts: decTs,
+              criada: now,
+              horizonte: 48,
+              lado: lado === 1 ? "COMPRA" : "VENDA",
+              entrada: price,
+              stop: price * (1 - lado * 1.5 * sigH),
+              alvo: price * (1 + lado * 1.5 * sigH),
+              expira: now + 48 * H1,
+              prev: a48.mean,
+              concordancia: agree,
+              status: "aberta",
+              hipotese: "swing-analogos-t4h",
+              ativo: "BTCUSDT",
+              tipo: "operacao"
+            }));
+            log(`Swing: ${lado === 1 ? "COMPRA" : "VENDA"} 48h a ${price}`);
+          }
+          swing = { ...swing, avaliadoEm: decTs, media: a48.mean, up: a48.up, sugeriu: !motivos.length, motivo: motivos.join("; ") || "sugest\xE3o criada" };
+        }
+      } else if (estadoAnt.swing) swing = { ...estadoAnt.swing, tend4h: swing.tend4h };
+      estado.swing = swing;
       estado.avaliacao = { decTs, avaliadoEm: now, porH, tendencia, media24: s24, media72: s72 };
       if (src.oi) {
         try {
@@ -173,7 +217,7 @@ Deno.serve(async (req) => {
         }
       }
     }
-    const abertas = await must(sb.from("sugestoes").select("*").eq("status", "aberta"));
+    const abertas = await must(sb.from("sugestoes").select("*").eq("status", "aberta").eq("tipo", "operacao").eq("ativo", "BTCUSDT"));
     if (abertas.length) {
       const since = Math.min(...abertas.map((s) => Number(s.criada))) - 6e4;
       const c1m = (await fetchKlines(src, "1m", since, 10)).map(({ t, o, h, l, c, v }) => ({ t, o, h, l, c, v }));
@@ -192,7 +236,7 @@ Deno.serve(async (req) => {
             funding: r.funding,
             liquido: r.liquido
           }).eq("id", s.id));
-          log(`Sugest\xE3o ${s.lado} (${s.horizonte} h) fechada: ${r.motivo}, ${r.liquido.toFixed(2)}%`);
+          log(`[${s.hipotese}] ${s.lado} (${s.horizonte} h) fechada: ${r.motivo}, ${r.liquido.toFixed(2)}%`);
         }
       }
     }

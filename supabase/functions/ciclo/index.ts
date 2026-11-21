@@ -5,7 +5,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import Core from "./core.js";
 import EVENTOS from "./eventos.js";
 
-const H1 = 3600e3, HORIZONS = [1, 4], START_MS = 1567900800000;
+const H1 = 3600e3, HORIZONS = [1, 4], BUILD_H = [1, 4, 48], START_MS = 1567900800000;
 const SOURCES = [
   { id: "fut", nome: "Binance Futuros · BTCUSDT perpétuo", base: "https://fapi.binance.com/fapi/v1", funding: true, oi: true, max: 1500 },
   { id: "spot", nome: "Binance Spot · BTCUSDT (reserva, sem funding)", base: "https://data-api.binance.vision/api/v3", funding: false, oi: false, max: 1000 },
@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
     estado.proximaAvaliacao = decTs + H1;
     const ja = await must(sb.from("avaliacoes").select("h").eq("dec_ts", decTs));
     if (!ja.length || !estado.avaliacao || estado.avaliacao.decTs !== decTs) {
-      const F = Core.build(bars, evMs, HORIZONS);
+      const F = Core.build(bars, evMs, BUILD_H);
       const qi = F.n - 1;
       // tendência em tempo maior: média de 24h vs 72h (velas de 1h)
       const closes = bars.map((b) => b.c);
@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
       const filtroTend = cfg.filtroTendencia ?? true;
       // deno-lint-ignore no-explicit-any
       const porH: any = {};
-      const abertas = await must(sb.from("sugestoes").select("horizonte").eq("status", "aberta"));
+      const abertas = await must(sb.from("sugestoes").select("horizonte,hipotese").eq("status", "aberta"));
       for (const H of HORIZONS) {
         const a = Core.analogs(F, qi, H, decTs, { p: cfg.wPreco, c: cfg.wCal, m: cfg.wMacro }, cfg.k);
         if (!a) continue;
@@ -132,11 +132,11 @@ Deno.serve(async (req) => {
         }
         const fresh = now - decTs <= 20 * 60e3;
         // deno-lint-ignore no-explicit-any
-        const jaAberta = abertas.some((s: any) => s.horizonte === H);
+        const jaAberta = abertas.some((s: any) => s.horizonte === H && s.hipotese === "analogos-1h4h");
         let motivo = d.motivos.join("; "), sugeriu = false;
         if (!ja.length && d.sugere && fresh && !jaAberta) {
           await must(sb.from("sugestoes").upsert({ id: `${decTs}_${H}`, dec_ts: decTs, criada: now, horizonte: H, lado: d.side, entrada: d.entrada,
-            stop: d.stop, alvo: d.alvo, expira: d.expira, prev: a.mean, concordancia: d.agree, status: "aberta" }));
+            stop: d.stop, alvo: d.alvo, expira: d.expira, prev: a.mean, concordancia: d.agree, status: "aberta", hipotese: "analogos-1h4h", ativo: "BTCUSDT", tipo: "operacao" }));
           sugeriu = true; motivo = "sugestão criada"; log(`Nova sugestão ${d.side} (${H} h) a ${d.entrada}`);
         } else if (d.sugere && !fresh) motivo = "avaliação fora da janela de decisão";
         else if (d.sugere && jaAberta) motivo = "já existe sugestão aberta neste prazo";
@@ -144,6 +144,36 @@ Deno.serve(async (req) => {
         porH[H] = { mean: a.mean, median: a.median, up: a.up, sd: a.sd, decisao: d, motivo,
           vizinhos: a.neighbors.slice(0, 12).map((x: { i: number; dec: number; dist: number }) => ({ dec: x.dec, dist: x.dist, f1: F.fwd[1][x.i], f4: F.fwd[4][x.i] })) };
       }
+      // ---- hipótese B (swing): casos parecidos 48h + tendência de 4h, avaliada a cada 4h
+      const s80 = media(80), s200 = media(200);
+      const tend4h = cl > s80 && s80 > s200 ? 1 : cl < s80 && s80 < s200 ? -1 : 0;
+      // deno-lint-ignore no-explicit-any
+      let swing: any = { tend4h: tend4h === 1 ? "ALTA" : tend4h === -1 ? "BAIXA" : "NEUTRA" };
+      if (Math.round(decTs / H1) % 4 === 0) {
+        const a48 = Core.analogs(F, qi, 48, decTs, { p: cfg.wPreco, c: cfg.wCal, m: cfg.wMacro }, cfg.k);
+        if (a48) {
+          const lado = a48.mean > 0 ? 1 : -1, agree = a48.mean > 0 ? a48.up : 1 - a48.up;
+          const rets = closes.slice(-721).map((x, i, arr) => i ? Math.log(x / arr[i - 1]) : 0).slice(1);
+          const mu = rets.reduce((s, x) => s + x, 0) / rets.length;
+          const sigH = Math.sqrt(rets.reduce((s, x) => s + (x - mu) ** 2, 0) / (rets.length - 1)) * Math.sqrt(48);
+          const motivos: string[] = [];
+          if (agree < 0.6) motivos.push(`concordância ${(agree * 100).toFixed(0)}% < 60%`);
+          if (Math.abs(a48.mean) < 0.15) motivos.push(`movimento esperado ${Math.abs(a48.mean).toFixed(2).replace(".", ",")}% < 0,15%`);
+          if (lado !== tend4h) motivos.push(`contra ou sem tendência de 4h (${swing.tend4h})`);
+          // deno-lint-ignore no-explicit-any
+          const swAberta = abertas.some((s: any) => s.hipotese === "swing-analogos-t4h");
+          if (!motivos.length && swAberta) motivos.push("já existe swing aberto");
+          if (!motivos.length && now - decTs > 20 * 60e3) motivos.push("fora da janela de decisão");
+          if (!motivos.length) {
+            await must(sb.from("sugestoes").upsert({ id: `swing_${decTs}`, dec_ts: decTs, criada: now, horizonte: 48, lado: lado === 1 ? "COMPRA" : "VENDA",
+              entrada: price, stop: price * (1 - lado * 1.5 * sigH), alvo: price * (1 + lado * 1.5 * sigH), expira: now + 48 * H1, prev: a48.mean,
+              concordancia: agree, status: "aberta", hipotese: "swing-analogos-t4h", ativo: "BTCUSDT", tipo: "operacao" }));
+            log(`Swing: ${lado === 1 ? "COMPRA" : "VENDA"} 48h a ${price}`);
+          }
+          swing = { ...swing, avaliadoEm: decTs, media: a48.mean, up: a48.up, sugeriu: !motivos.length, motivo: motivos.join("; ") || "sugestão criada" };
+        }
+      } else if (estadoAnt.swing) swing = { ...estadoAnt.swing, tend4h: swing.tend4h };
+      estado.swing = swing;
       estado.avaliacao = { decTs, avaliadoEm: now, porH, tendencia, media24: s24, media72: s72 };
       if (src.oi) {
         try { const r = await getJSON(`${src.base}/openInterest?symbol=BTCUSDT`); await must(sb.from("open_interest").upsert({ t: +r.time, oi: +r.openInterest, preco: price })); }
@@ -152,7 +182,7 @@ Deno.serve(async (req) => {
     }
 
     // ---- 4) juiz
-    const abertas = await must(sb.from("sugestoes").select("*").eq("status", "aberta"));
+    const abertas = await must(sb.from("sugestoes").select("*").eq("status", "aberta").eq("tipo", "operacao").eq("ativo", "BTCUSDT"));
     if (abertas.length) {
       // deno-lint-ignore no-explicit-any
       const since = Math.min(...abertas.map((s: any) => Number(s.criada))) - 60e3;
@@ -164,7 +194,7 @@ Deno.serve(async (req) => {
         if (r.status !== "aberta") {
           await must(sb.from("sugestoes").update({ status: r.status, saida: r.saida, saida_t: r.saidaT, motivo: r.motivo, bruto: r.bruto,
             taxas: r.taxas, funding: r.funding, liquido: r.liquido }).eq("id", s.id));
-          log(`Sugestão ${s.lado} (${s.horizonte} h) fechada: ${r.motivo}, ${r.liquido.toFixed(2)}%`);
+          log(`[${s.hipotese}] ${s.lado} (${s.horizonte} h) fechada: ${r.motivo}, ${r.liquido.toFixed(2)}%`);
         }
       }
     }

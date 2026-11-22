@@ -1,0 +1,38 @@
+name: Baixar histórico do WIN (MetaTrader 5)
+on:
+  workflow_dispatch:
+  push:
+    paths: ["data/win/rodar.txt"]
+permissions:
+  contents: write
+jobs:
+  baixar:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Instalar MetaTrader 5
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
+          Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -Wait
+          Start-Sleep -Seconds 20
+          Get-ChildItem "C:\Program Files\MetaTrader 5" | Select-Object Name | Out-String | Write-Host
+      - name: Baixar dados
+        env:
+          MT5_LOGIN: "1197054822"
+          MT5_SERVER: "ClearInvestimentos-DEMO"
+          MT5_PASSWORD: ${{ secrets.MT5_PASSWORD }}
+        run: |
+          pip install MetaTrader5 pandas
+          python tools/baixar_win.py
+      - name: Salvar no repositório
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "robo-win"; git config user.email "robo-win@users.noreply.github.com"
+          git add data/win
+          git commit -m "Histórico do WIN baixado pelo robô" || echo "nada novo"
+          git push

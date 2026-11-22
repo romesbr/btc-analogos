@@ -67,6 +67,15 @@
   </header>
 
   <section class="card">
+    <h2>Indicador de grande movimento (próximas 24h, sem direção)</h2>
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="big" id="al-nivel">—</div><div id="al-prob" class="mut"></div></div>
+    <div style="height:8px;border-radius:4px;background:var(--line);margin:8px 0;overflow:hidden"><div id="al-bar" style="height:100%;width:0;background:var(--acc)"></div></div>
+    <div class="mut" id="al-meta"></div>
+    <div class="tw" style="margin-top:8px"><table><thead><tr><th>Nível</th><th>Leituras conferidas</th><th>Viraram movimento grande</th><th>Histórico 2023–26 (Binance)</th></tr></thead><tbody id="al-placar"></tbody></table></div>
+    <div class="tw" style="margin-top:8px"><table><thead><tr><th>Hora</th><th>Nível</th><th>Chance</th><th>"Grande" seria</th><th>Aconteceu</th></tr></thead><tbody id="al-hist"></tbody></table></div>
+  </section>
+
+  <section class="card">
     <h2>Placar por hipótese (líquido de taxas e funding)</h2>
     <div class="tw"><table><thead><tr><th>Hipótese</th><th>Grupo</th><th>Fechadas</th><th>Acerto</th><th>Soma líquida</th><th>Média</th><th>Abertas</th></tr></thead><tbody id="placar"></tbody></table></div>
     <div class="mut" style="margin-top:6px">Toque numa hipótese para ver a regra.</div>
@@ -146,15 +155,16 @@ const num = x => x == null ? x : Number(x);
 function mapSug(s) { return { id: s.id, decTs: num(s.dec_ts), criada: num(s.criada), horizonte: s.horizonte, lado: s.lado, entrada: s.entrada, stop: s.stop, alvo: s.alvo,
   expira: num(s.expira), hipotese: s.hipotese, ativo: s.ativo, tipo: s.tipo, prev: s.prev, concordancia: s.concordancia, status: s.status, saida: s.saida, saidaT: num(s.saida_t), motivo: s.motivo, bruto: s.bruto, taxas: s.taxas, funding: s.funding, liquido: s.liquido }; }
 async function loadState() {
-  const [e, s, c, a, h, l] = await Promise.all([sb.from("estado").select("dados").eq("id", 1).maybeSingle(), sb.from("sugestoes").select("*").order("criada", { ascending: true }),
+  const [e, s, c, a, h, l, al] = await Promise.all([sb.from("estado").select("dados").eq("id", 1).maybeSingle(), sb.from("sugestoes").select("*").order("criada", { ascending: true }),
     sb.from("config").select("dados").eq("id", 1).maybeSingle(), sb.from("avaliacoes").select("dec_ts").eq("h", 1),
-    sb.from("hipoteses").select("*").order("ordem"), sb.from("estado_lab").select("dados").eq("id", 1).maybeSingle()]);
+    sb.from("hipoteses").select("*").order("ordem"), sb.from("estado_lab").select("dados").eq("id", 1).maybeSingle(),
+    sb.from("alertas").select("dec_ts,prob,nivel,limiar,tipica,excursao,sentido,grande").order("dec_ts", { ascending: false }).limit(2000)]);
   if (e.error || s.error || c.error) throw new Error((e.error || s.error || c.error).message);
   if (!e.data && !c.data) throw new Error("sem permissão");
   const d = (e.data && e.data.dados) || {};
   return { status: d.status || "aguardando", fonte: d.fonte, fonteId: d.fonteId, ultimoCiclo: d.ultimoCiclo || 0, preco: d.preco, horasHistorico: d.horasHistorico || 0,
     proximaAvaliacao: d.proximaAvaliacao, cfg: c.data ? c.data.dados : {}, estado: d.avaliacao || null, sugestoes: (s.data || []).map(mapSug),
-    horasAvaliadas: (a.data || []).length, logs: d.logs || [], swing: d.swing || null, hipoteses: h.data || [], lab: (l.data && l.data.dados) || {} };
+    horasAvaliadas: (a.data || []).length, logs: d.logs || [], swing: d.swing || null, hipoteses: h.data || [], lab: (l.data && l.data.dados) || {}, alerta: d.alerta || null, alertas: al.data || [] };
 }
 
 // ---------- gráfico ----------
@@ -266,6 +276,28 @@ function renderTend() {
     cell(tr, r.aberta_desde ? fdt(r.aberta_desde) : "—"); cell(tr, aberto == null ? "—" : fpct(aberto), aberto == null ? "" : aberto > 0 ? "up" : "down");
   }
 }
+const AL_HIST = { "BAIXO": [47, 13], "NORMAL": [42, 20], "ALTO": [8, 39], "MUITO ALTO": [3, 62] }; // teste fora da amostra: modelo treinado até 2022, aplicado em 2023–26 na Binance
+function renderAlerta() {
+  const a = S.alerta, cor = { "BAIXO": "var(--mut)", "NORMAL": "var(--fg)", "ALTO": "var(--warn)", "MUITO ALTO": "var(--down)" };
+  if (!a) { $("al-nivel").textContent = "—"; $("al-meta").textContent = "Aguardando a primeira leitura (sai no fechamento de cada hora)."; }
+  else {
+    $("al-nivel").textContent = a.nivel; $("al-nivel").style.color = cor[a.nivel];
+    $("al-prob").textContent = `${fnum(a.prob * 100, 0)}% de chance de movimento grande (normal ≈ 19%)`;
+    $("al-bar").style.width = Math.min(100, a.prob / 0.7 * 100) + "%"; $("al-bar").style.background = cor[a.nivel];
+    $("al-meta").textContent = `Leitura das ${fdt(a.decTs)} · "grande" agora = BTC se afastar ${fnum(a.limiar, 1)}% do preço atual (para qualquer lado) em algum momento das próximas 24h; o típico dos últimos 30 dias é ${fnum(a.tipica, 1)}%. Usa volume, oscilação recente, faixa de preço, hora, fim de semana e agenda macro.`;
+  }
+  const tb = $("al-placar"); tb.replaceChildren();
+  for (const nv of ["BAIXO", "NORMAL", "ALTO", "MUITO ALTO"]) {
+    const ok = S.alertas.filter(x => x.nivel === nv && x.grande != null), g = ok.filter(x => x.grande).length;
+    const tr = tb.insertRow(); cell(tr, nv); cell(tr, String(ok.length)); cell(tr, ok.length ? fnum(g / ok.length * 100, 0) + "%" : "—");
+    cell(tr, `${AL_HIST[nv][1]}% (${AL_HIST[nv][0]}% do tempo)`, "mut");
+  }
+  const th = $("al-hist"); th.replaceChildren();
+  for (const x of S.alertas.slice(0, 48)) {
+    const tr = th.insertRow(); cell(tr, fdt(Number(x.dec_ts))); cell(tr, x.nivel); cell(tr, fnum(x.prob * 100, 0) + "%"); cell(tr, "±" + fnum(x.limiar, 1) + "%");
+    cell(tr, x.grande == null ? "aguardando 24h" : `${x.grande ? "SIM" : "não"} · ${fnum(x.excursao, 1)}% para ${x.sentido === "ALTA" ? "cima" : "baixo"}`, x.grande == null ? "mut" : x.grande ? "up" : "");
+  }
+}
 function renderVivo() {
   const tb = $("vivo"); tb.replaceChildren();
   const sw = S.swing;
@@ -285,7 +317,7 @@ function renderCfg() {
 async function refresh() {
   try {
     S = await loadState();
-    renderHeader(); renderEstado(); renderTable(); renderPlacar(); renderTend(); renderVivo(); renderCfg(); renderMarkers();
+    renderHeader(); renderEstado(); renderTable(); renderAlerta(); renderPlacar(); renderTend(); renderVivo(); renderCfg(); renderMarkers();
     $("log").textContent = [...(S.lab.logs || []).map(x => "lab " + x), ...S.logs].join("\n");
   } catch (e) { $("srv").textContent = "servidor: sem resposta"; $("srv").className = "pill bad"; }
 }

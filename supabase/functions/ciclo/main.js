@@ -1,6 +1,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import Core from "./core.js";
 import EVENTOS from "./eventos.js";
+import * as Alerta from "./alerta.js";
 const H1 = 36e5, HORIZONS = [1, 4], BUILD_H = [1, 4, 48], START_MS = 15679008e5;
 const SOURCES = [
   { id: "fut", nome: "Binance Futuros \xB7 BTCUSDT perp\xE9tuo", base: "https://fapi.binance.com/fapi/v1", funding: true, oi: true, max: 1500 },
@@ -207,6 +208,32 @@ Deno.serve(async (req) => {
         }
       } else if (estadoAnt.swing) swing = { ...estadoAnt.swing, tend4h: swing.tend4h };
       estado.swing = swing;
+      try {
+        const evOrd = [...evMs].sort((a, b) => a - b);
+        const AP = Alerta.preparar(bars), ia = bars.length - 1;
+        const fa = Alerta.features(AP, ia, evOrd), pa = Alerta.prob(fa);
+        if (pa != null) {
+          const tip = Alerta.excursaoTipica(AP, ia) * 100, nv = Alerta.nivel(pa);
+          await must(sb.from("alertas").upsert({ dec_ts: decTs, prob: pa, nivel: nv, preco: cl, tipica: tip, limiar: 1.75 * tip, features: fa }));
+          const pend = await must(sb.from("alertas").select("dec_ts,preco,limiar").is("excursao", null).lte("dec_ts", decTs - 24 * H1).limit(200));
+          const pos = new Map(bars.map((b, k) => [b.t + H1, k]));
+          for (const a of pend) {
+            const k = pos.get(Number(a.dec_ts));
+            if (k == null || k + 24 >= bars.length) continue;
+            let hi = -Infinity, lo = Infinity;
+            for (let j = k + 1; j <= k + 24; j++) {
+              hi = Math.max(hi, bars[j].h);
+              lo = Math.min(lo, bars[j].l);
+            }
+            const up = Math.log(hi / bars[k].c) * 100, dn = Math.log(bars[k].c / lo) * 100, ex = Math.max(up, dn);
+            await must(sb.from("alertas").update({ excursao: ex, sentido: up >= dn ? "ALTA" : "BAIXA", grande: ex >= a.limiar }).eq("dec_ts", a.dec_ts));
+          }
+          estado.alerta = { decTs, prob: pa, nivel: nv, tipica: tip, limiar: 1.75 * tip };
+          if (nv === "MUITO ALTO" || nv === "ALTO") log(`Alerta de movimento: ${nv} (${(pa * 100).toFixed(0)}%)`);
+        }
+      } catch (e) {
+        log("Alerta: " + e);
+      }
       estado.avaliacao = { decTs, avaliadoEm: now, porH, tendencia, media24: s24, media72: s72 };
       if (src.oi) {
         try {

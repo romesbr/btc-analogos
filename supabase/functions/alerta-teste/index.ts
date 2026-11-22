@@ -1,8 +1,8 @@
 // Teste fora da amostra do indicador de grande movimento nos dados da Binance (modelo treinado só até 2022 na Bitstamp).
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { preparar, features, prob, COEF } from "./alerta.js";
-import EVENTOS from "./eventos.js";
-import Core from "./core.js";
+import { preparar, features, prob, COEF } from "https://cdn.jsdelivr.net/gh/romesbr/btc-analogos@6fb2eaef6bad26991f35dc80346d7d340d39858d/supabase/functions/ciclo/alerta.js";
+import EVENTOS from "https://cdn.jsdelivr.net/gh/romesbr/btc-analogos@6fb2eaef6bad26991f35dc80346d7d340d39858d/supabase/functions/ciclo/eventos.js";
+import Core from "https://cdn.jsdelivr.net/gh/romesbr/btc-analogos@6fb2eaef6bad26991f35dc80346d7d340d39858d/supabase/functions/ciclo/core.js";
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, key, { auth: { persistSession: false } });
 Deno.serve(async (req) => {

@@ -192,11 +192,14 @@ function initChart() {
     const b = p.seriesData.get(series); if (!b) { box.hidden = true; return; }
     const ini = (p.time - tzOff) * 1000, passo = chartInterval === "1h" ? 3600e3 : 900e3;
     const linhas = [`<b>${fdt(ini)}</b> → ${fdt(ini + passo).slice(-5)} (Brasília) · abertura ${fnum(b.open, 1)} · máx ${fnum(b.high, 1)} · mín ${fnum(b.low, 1)} · fech. ${fnum(b.close, 1)}`];
-    for (const s of (markerMap[p.time] || [])) linhas.push(`${s.lado === "COMPRA" ? "▲" : "▼"} ${nomeCurto(s.hipotese)} · ${s.lado.toLowerCase()} a ${fnum(s.entrada, 1)} às ${fdt(s.criada).slice(-5)}` + (s.status === "fechada" ? ` · ${s.motivo} → ${fpct(s.liquido)}` : " · aberta"));
+    for (const s of (markerMap[p.time] || [])) linhas.push(s._saida
+      ? `● ${nomeCurto(s.hipotese)} · saída ${hm(s.saidaT)} a ${fnum(s.saida, 1)} (${s.motivo}) → ${fpct(s.liquido)}`
+      : `${s.lado === "COMPRA" ? "▲" : "▼"} ${nomeCurto(s.hipotese)} · ${s.lado.toLowerCase()} ${hm(s.criada)} a ${fnum(s.entrada, 1)}` + (s.status === "fechada" ? ` · ${s.motivo} → ${fpct(s.liquido)}` : " · aberta"));
     box.innerHTML = linhas.join("<br>"); box.hidden = false;
   });
 }
 let markerMap = {};
+const hm = ms => fdt(ms).replace(/\/\d{2}, /, " "); // dd/mm hh:mm (Brasília)
 async function loadChart(fit) {
   if (!series) return;
   try {
@@ -215,14 +218,20 @@ function renderMarkers() {
     (markerMap[bt] ||= []).push(s);
     const color = s.status === "aberta" ? "#60a5fa" : (s.liquido > 0 ? "#22c55e" : "#ef4444");
     mk.push({ time: bt, position: s.lado === "COMPRA" ? "belowBar" : "aboveBar", color, shape: s.lado === "COMPRA" ? "arrowUp" : "arrowDown",
-      text: `${nomeCurto(s.hipotese)}${s.status === "fechada" ? " " + fpct(s.liquido, 1) : ""}` });
+      text: `${nomeCurto(s.hipotese)} ${hm(s.criada)}` });
+    // marcador de saída, com data/hora e resultado
+    if (s.status === "fechada" && s.saidaT) {
+      const st = Math.floor((s.saidaT / 1000) / step) * step + tzOff;
+      if (st >= t0) { (markerMap[st] ||= []).push({ ...s, _saida: true });
+        mk.push({ time: st, position: s.lado === "COMPRA" ? "aboveBar" : "belowBar", color, shape: "circle", text: `saída ${hm(s.saidaT)} ${fpct(s.liquido, 1)}` }); }
+    }
   }
   mk.sort((a, b) => a.time - b.time); series.setMarkers(mk);
   for (const pl of priceLines) series.removePriceLine(pl); priceLines = [];
   for (const s of ops.filter(x => x.status === "aberta" && x.stop != null)) {
     priceLines.push(series.createPriceLine({ price: s.stop, color: "#ef4444", lineStyle: 2, lineWidth: 1, title: `stop ${nomeCurto(s.hipotese)}` }));
     if (s.alvo != null) priceLines.push(series.createPriceLine({ price: s.alvo, color: "#22c55e", lineStyle: 2, lineWidth: 1, title: `alvo ${nomeCurto(s.hipotese)}` }));
-    priceLines.push(series.createPriceLine({ price: s.entrada, color: "#60a5fa", lineStyle: 0, lineWidth: 1, title: `entrada ${nomeCurto(s.hipotese)}` }));
+    priceLines.push(series.createPriceLine({ price: s.entrada, color: "#60a5fa", lineStyle: 0, lineWidth: 1, title: `entrada ${nomeCurto(s.hipotese)} ${hm(s.criada)}` }));
   }
 }
 

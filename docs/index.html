@@ -86,8 +86,9 @@
       <h2 style="margin:0">3 · Gráfico do BTC e operações</h2>
       <div class="tabs" id="tabs"><button data-i="15m">15 min</button><button data-i="1h" class="on">1 h</button></div>
     </div>
-    <div class="mut" style="margin-bottom:6px">▲ compra · ▼ venda · ● saída · azul = aberta · verde = lucro · vermelho = prejuízo. Toque no gráfico para ver horário e detalhes.</div>
-    <div id="chart"><div class="dica" id="dica" hidden></div></div>
+    <div class="mut" style="margin-bottom:6px">▲ compra · ▼ venda · ● saída · azul = aberta · verde = lucro · vermelho = prejuízo. Toque numa vela para ver os detalhes dela abaixo do gráfico.</div>
+    <div id="chart"></div>
+    <div id="dica" class="sug on" style="margin-top:8px;font-variant-numeric:tabular-nums"></div>
     <h2 style="margin-top:12px">Todas as operações</h2>
     <div class="tw"><table><thead><tr><th>Criada</th><th>Hipótese</th><th>Ativo</th><th>Prazo</th><th>Lado</th><th>Entrada</th><th>Stop</th><th>Alvo</th><th>Concord.</th><th>Status</th><th>Saída</th><th>Líquido</th></tr></thead><tbody id="tb"></tbody></table></div>
     <div style="margin-top:8px"><button class="btn" id="csv">Baixar CSV</button></div>
@@ -170,22 +171,39 @@ const tzOff = -new Date().getTimezoneOffset() * 60;
 function initChart() {
   if (!window.LightweightCharts) { $("chart").textContent = "Não foi possível carregar a biblioteca do gráfico."; return; }
   const css = getComputedStyle(document.documentElement);
+  const p2 = n => String(n).padStart(2, "0");
+  const dataEixo = s => { const d = new Date(s * 1000); return `${p2(d.getUTCDate())}/${p2(d.getUTCMonth() + 1)}`; };
+  const horaEixo = s => { const d = new Date(s * 1000); return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`; };
   chart = LightweightCharts.createChart($("chart"), { autoSize: true,
     layout: { background: { color: "transparent" }, textColor: css.getPropertyValue("--mut").trim() },
     grid: { vertLines: { color: css.getPropertyValue("--line").trim() }, horzLines: { color: css.getPropertyValue("--line").trim() } },
-    timeScale: { timeVisible: true, secondsVisible: false }, rightPriceScale: { borderVisible: false } });
+    localization: { locale: "pt-BR", timeFormatter: s => `${dataEixo(s)} ${horaEixo(s)}` },
+    timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (s, tipo) => tipo <= 2 ? dataEixo(s) : `${dataEixo(s)} ${horaEixo(s)}` },
+    rightPriceScale: { borderVisible: false } });
   series = chart.addCandlestickSeries({ upColor: "#22c55e", downColor: "#ef4444", borderVisible: false, wickUpColor: "#22c55e", wickDownColor: "#ef4444" });
-  chart.subscribeCrosshairMove(p => {
-    const box = $("dica");
-    if (!p || p.time == null || !p.seriesData) { box.hidden = true; return; }
-    const b = p.seriesData.get(series); if (!b) { box.hidden = true; return; }
-    const ini = (p.time - tzOff) * 1000, passo = chartInterval === "1h" ? 3600e3 : 900e3;
-    const linhas = [`<b>${fdt(ini)}</b> → ${fdt(ini + passo).slice(-5)} (Brasília) · abertura ${fnum(b.open, 1)} · máx ${fnum(b.high, 1)} · mín ${fnum(b.low, 1)} · fech. ${fnum(b.close, 1)}`];
-    for (const s of (markerMap[p.time] || [])) linhas.push(s._saida
-      ? `● ${nomeCurto(s.hipotese)} · saída ${hm(s.saidaT)} a ${fnum(s.saida, 1)} (${s.motivo}) → ${fpct(s.liquido)}`
-      : `${s.lado === "COMPRA" ? "▲" : "▼"} ${nomeCurto(s.hipotese)} · ${s.lado.toLowerCase()} ${hm(s.criada)} a ${fnum(s.entrada, 1)}` + (s.status === "fechada" ? ` · ${s.motivo} → ${fpct(s.liquido)}` : " · aberta"));
-    box.innerHTML = linhas.join("<br>"); box.hidden = false;
-  });
+  chart.subscribeCrosshairMove(p => { if (p && p.time != null) mostrarVela(p.time); else mostrarVela(velaEscolhida); });
+  chart.subscribeClick(p => { velaEscolhida = p && p.time != null ? p.time : null; mostrarVela(velaEscolhida); });
+}
+let velaEscolhida = null;
+// detalhe de uma vela (padrão: a última); mostra também as operações marcadas nela e as que estão abertas
+function mostrarVela(tm) {
+  const box = $("dica"); if (!box || !chartBars.length) return;
+  const b = (tm != null && chartBars.find(x => x.time === tm)) || chartBars[chartBars.length - 1];
+  const ultima = b === chartBars[chartBars.length - 1];
+  const ini = (b.time - tzOff) * 1000, passo = chartInterval === "1h" ? 3600e3 : 900e3;
+  const linhas = [`<b>${ultima ? "Última vela" : "Vela"} · ${fdt(ini)} → ${fdt(ini + passo).slice(-5)}</b> (Brasília)`,
+    `abertura ${fnum(b.open, 1)} · máxima ${fnum(b.high, 1)} · mínima ${fnum(b.low, 1)} · fechamento ${fnum(b.close, 1)}`];
+  const marc = markerMap[b.time] || [];
+  for (const s of marc) linhas.push(s._saida
+    ? `● <b>${nomeCurto(s.hipotese)}</b> · saída ${hm(s.saidaT)} a ${fnum(s.saida, 1)} (${s.motivo}) → ${fpct(s.liquido)}`
+    : `${s.lado === "COMPRA" ? "▲" : "▼"} <b>${nomeCurto(s.hipotese)}</b> · ${s.lado.toLowerCase()} em ${hm(s.criada)} a ${fnum(s.entrada, 1)}` + (s.status === "fechada" ? ` · fechou: ${s.motivo} → ${fpct(s.liquido)}` : " · aberta"));
+  if (ultima || !marc.length) {
+    const ab = S.sugestoes.filter(s => s.status === "aberta" && s.tipo !== "posicao" && s.ativo === "BTCUSDT");
+    if (ab.length) linhas.push('<span class="mut">Abertas agora:</span>');
+    for (const s of ab) linhas.push(`${s.lado === "COMPRA" ? "▲" : "▼"} <b>${nomeCurto(s.hipotese)}</b> · ${s.lado.toLowerCase()} em ${hm(s.criada)} a ${fnum(s.entrada, 1)} · stop ${fnum(s.stop, 1)}${s.alvo != null ? " · alvo " + fnum(s.alvo, 1) : ""} · vence ${hm(s.expira)}`);
+  }
+  if (!ultima) linhas.push('<span class="mut">Toque fora das velas (ou no fim do gráfico) para voltar à última.</span>');
+  box.innerHTML = linhas.join("<br>");
 }
 let markerMap = {};
 const hm = ms => fdt(ms).replace(/\/\d{2}, /, " "); // dd/mm hh:mm (Brasília)
@@ -207,20 +225,20 @@ function renderMarkers() {
     (markerMap[bt] ||= []).push(s);
     const color = s.status === "aberta" ? "#60a5fa" : (s.liquido > 0 ? "#22c55e" : "#ef4444");
     mk.push({ time: bt, position: s.lado === "COMPRA" ? "belowBar" : "aboveBar", color, shape: s.lado === "COMPRA" ? "arrowUp" : "arrowDown",
-      text: `${nomeCurto(s.hipotese)} ${hm(s.criada)}` });
+      text: "" });
     // marcador de saída, com data/hora e resultado
     if (s.status === "fechada" && s.saidaT) {
       const st = Math.floor((s.saidaT / 1000) / step) * step + tzOff;
       if (st >= t0) { (markerMap[st] ||= []).push({ ...s, _saida: true });
-        mk.push({ time: st, position: s.lado === "COMPRA" ? "aboveBar" : "belowBar", color, shape: "circle", text: `saída ${hm(s.saidaT)} ${fpct(s.liquido, 1)}` }); }
+        mk.push({ time: st, position: s.lado === "COMPRA" ? "aboveBar" : "belowBar", color, shape: "circle", size: 0.6, text: "" }); }
     }
   }
-  mk.sort((a, b) => a.time - b.time); series.setMarkers(mk);
+  mk.sort((a, b) => a.time - b.time); series.setMarkers(mk); mostrarVela(velaEscolhida);
   for (const pl of priceLines) series.removePriceLine(pl); priceLines = [];
   for (const s of ops.filter(x => x.status === "aberta" && x.stop != null)) {
-    priceLines.push(series.createPriceLine({ price: s.stop, color: "#ef4444", lineStyle: 2, lineWidth: 1, title: `stop ${nomeCurto(s.hipotese)}` }));
-    if (s.alvo != null) priceLines.push(series.createPriceLine({ price: s.alvo, color: "#22c55e", lineStyle: 2, lineWidth: 1, title: `alvo ${nomeCurto(s.hipotese)}` }));
-    priceLines.push(series.createPriceLine({ price: s.entrada, color: "#60a5fa", lineStyle: 0, lineWidth: 1, title: `entrada ${nomeCurto(s.hipotese)} ${hm(s.criada)}` }));
+    priceLines.push(series.createPriceLine({ price: s.stop, color: "#ef4444", lineStyle: 2, lineWidth: 1, title: "stop" }));
+    if (s.alvo != null) priceLines.push(series.createPriceLine({ price: s.alvo, color: "#22c55e", lineStyle: 2, lineWidth: 1, title: "alvo" }));
+    priceLines.push(series.createPriceLine({ price: s.entrada, color: "#60a5fa", lineStyle: 0, lineWidth: 1, title: "" }));
   }
 }
 

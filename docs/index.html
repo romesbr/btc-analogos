@@ -68,67 +68,56 @@
   </header>
 
   <section class="card">
-    <h2>Carteira simulada · R$ 5 mil, risco de 2% por operação</h2>
+    <h2>1 · Carteira simulada (R$ 5 mil, risco de 2% por operação)</h2>
     <div class="kpis" id="cart-kpis"></div>
     <div id="cart-chart" style="height:180px;margin-top:8px;position:relative"><div class="dica" id="dica-cart" hidden></div></div>
-    <div class="tw" style="margin-top:8px"><table><thead><tr><th>Hipótese</th><th>Operações</th><th>Resultado (R$)</th></tr></thead><tbody id="cart-hip"></tbody></table></div>
     <div class="mut" id="cart-nota" style="margin-top:6px"></div>
   </section>
 
   <section class="card">
-    <h2>Indicador de grande movimento (próximas 24h, sem direção)</h2>
+    <h2>2 · Hipóteses em teste</h2>
+    <div class="mut" style="margin-bottom:6px">Resultado líquido (taxas e funding descontados) e o que cada regra está lendo agora. Toque numa linha para ver a regra.</div>
+    <div class="tw"><table><thead><tr><th>Hipótese</th><th>Fechadas</th><th>Acerto</th><th>Soma</th><th>R$ na carteira</th><th>Abertas</th><th>Última leitura</th></tr></thead><tbody id="placar"></tbody></table></div>
+    <div class="mut" id="placar-desc" style="margin-top:6px"></div>
+  </section>
+
+  <section class="card">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <h2 style="margin:0">3 · Gráfico do BTC e operações</h2>
+      <div class="tabs" id="tabs"><button data-i="15m">15 min</button><button data-i="1h" class="on">1 h</button></div>
+    </div>
+    <div class="mut" style="margin-bottom:6px">▲ compra · ▼ venda · ● saída · azul = aberta · verde = lucro · vermelho = prejuízo. Toque no gráfico para ver horário e detalhes.</div>
+    <div id="chart"><div class="dica" id="dica" hidden></div></div>
+    <h2 style="margin-top:12px">Todas as operações</h2>
+    <div class="tw"><table><thead><tr><th>Criada</th><th>Hipótese</th><th>Ativo</th><th>Prazo</th><th>Lado</th><th>Entrada</th><th>Stop</th><th>Alvo</th><th>Concord.</th><th>Status</th><th>Saída</th><th>Líquido</th></tr></thead><tbody id="tb"></tbody></table></div>
+    <div style="margin-top:8px"><button class="btn" id="csv">Baixar CSV</button></div>
+  </section>
+
+  <section class="card">
+    <h2>4 · Indicador de grande movimento (próximas 24h, sem direção)</h2>
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="big" id="al-nivel">—</div><div id="al-prob" class="mut"></div></div>
     <div style="height:8px;border-radius:4px;background:var(--line);margin:8px 0;overflow:hidden"><div id="al-bar" style="height:100%;width:0;background:var(--acc)"></div></div>
     <div class="mut" id="al-meta"></div>
-    <div class="tw" style="margin-top:8px"><table><thead><tr><th>Nível</th><th>Leituras conferidas</th><th>Viraram movimento grande</th><th>Histórico 2023–26 (Binance)</th></tr></thead><tbody id="al-placar"></tbody></table></div>
-    <div class="tw" style="margin-top:8px"><table><thead><tr><th>Hora</th><th>Nível</th><th>Chance</th><th>"Grande" seria</th><th>Aconteceu</th></tr></thead><tbody id="al-hist"></tbody></table></div>
+    <div class="tw" style="margin-top:8px"><table><thead><tr><th>Nível</th><th>Conferidas</th><th>Viraram grande</th><th>Teste 2023–26</th></tr></thead><tbody id="al-placar"></tbody></table></div>
+    <details style="margin-top:8px"><summary>Últimas leituras, hora a hora</summary>
+      <div class="tw" style="margin-top:6px"><table><thead><tr><th>Hora</th><th>Nível</th><th>Chance</th><th>"Grande" seria</th><th>Aconteceu</th></tr></thead><tbody id="al-hist"></tbody></table></div>
+    </details>
   </section>
 
   <section class="card">
-    <h2>Placar por hipótese (líquido de taxas e funding)</h2>
-    <div class="tw"><table><thead><tr><th>Hipótese</th><th>Grupo</th><th>Fechadas</th><th>Acerto</th><th>Soma líquida</th><th>Média</th><th>Abertas</th></tr></thead><tbody id="placar"></tbody></table></div>
-    <div class="mut" style="margin-top:6px">Toque numa hipótese para ver a regra.</div>
-    <div class="mut" id="placar-desc" style="margin-top:4px"></div>
-  </section>
-
-  <section class="card">
-    <h2>Tendência diária · posições (A)</h2>
+    <h2>5 · Tendência diária (BTC, ETH, SOL, S&amp;P 500, Ibovespa)</h2>
     <div class="mut" id="tend-meta"></div>
     <div class="tw"><table><thead><tr><th>Ativo</th><th>Regra</th><th>Situação</th><th>Último fechamento</th><th>Referência</th><th>Distância</th><th>Desde</th><th>Resultado aberto</th></tr></thead><tbody id="tend"></tbody></table></div>
   </section>
 
   <section class="card">
-    <h2>Hipóteses ao vivo · última leitura (B e C)</h2>
-    <div class="tw"><table><thead><tr><th>Hipótese</th><th>Lido em</th><th>Leitura</th></tr></thead><tbody id="vivo"></tbody></table></div>
-  </section>
-
-  <section class="card">
-    <h2>Painel 1h/4h · casos parecidos (só leitura, sem sugestões)</h2>
-    <div class="mut" id="estado-meta">Carregando…</div>
-    <div class="grid2" id="estado-h"></div>
-  </section>
-
-  <section class="card">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-      <h2 style="margin:0">Gráfico e sugestões</h2>
-      <div class="tabs" id="tabs"><button data-i="15m">15 min</button><button data-i="1h" class="on">1 h</button></div>
-      <span class="mut">Operações em BTC · ▲ compra · ▼ venda · azul = aberta · verde = lucro · vermelho = prejuízo</span>
-    </div>
-    <div id="chart"><div class="dica" id="dica" hidden></div></div>
-  </section>
-
-  <section class="card">
-    <h2>Sugestões</h2>
-    <div class="tw"><table><thead><tr><th>Criada</th><th>Hipótese</th><th>Ativo</th><th>Prazo</th><th>Lado</th><th>Entrada</th><th>Stop</th><th>Alvo</th><th>Concord.</th><th>Status</th><th>Saída</th><th>Líquido</th></tr></thead><tbody id="tb"></tbody></table></div>
-    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn" id="csv">Baixar CSV</button>
-      
-    </div>
-  </section>
-
-  <section class="card">
-    <h2>Momentos parecidos agora (prazo 4 h)</h2>
-    <div class="tw"><table><thead><tr><th>Data/hora (Brasília)</th><th>Distância</th><th>1 h depois</th><th>4 h depois</th></tr></thead><tbody id="nb"></tbody></table></div>
+    <details>
+      <summary>Day trade 1h/4h por casos parecidos (desligado — só leitura)</summary>
+      <div class="mut" id="estado-meta" style="margin-top:8px">Carregando…</div>
+      <div class="grid2" id="estado-h"></div>
+      <div class="mut" style="margin:10px 0 4px">Momentos mais parecidos com agora e o que veio depois:</div>
+      <div class="tw"><table><thead><tr><th>Data/hora (Brasília)</th><th>Distância</th><th>1 h depois</th><th>4 h depois</th></tr></thead><tbody id="nb"></tbody></table></div>
+    </details>
   </section>
 
   <section class="card">
@@ -267,7 +256,7 @@ function renderEstado() {
 }
 function renderTable() {
   const tb = $("tb"); tb.replaceChildren();
-  for (const s of [...S.sugestoes].reverse().slice(0, 300)) {
+  for (const s of [...S.sugestoes].sort((a, b) => b.criada - a.criada).slice(0, 300)) {
     const tr = tb.insertRow();
     const dp = s.ativo && s.ativo.startsWith("^") ? 0 : s.entrada < 10 ? 4 : 1;
     const vals = [fdt(s.criada), nomeCurto(s.hipotese), nomeAtivo(s.ativo), s.tipo === "posicao" ? "até virar" : s.horizonte + " h", s.lado, fnum(s.entrada, dp), fnum(s.stop, dp), fnum(s.alvo, dp),
@@ -282,16 +271,31 @@ const CURTO = { "tend-ma50": "Média 50d", "tend-mom28": "Momentum 28d", "protec
 const nomeAtivo = a => ATIVOS[a] || a || "BTC";
 const nomeCurto = h => CURTO[h] || h || "—";
 function cell(tr, v, cls) { const td = tr.insertCell(); td.textContent = v; if (cls) td.className = cls; return td; }
+function leituras() {
+  const L = {}, sw = S.swing, H = S.lab.hipoteses || {};
+  L["swing-analogos-t4h"] = sw ? { em: sw.avaliadoEm, txt: `tendência 4h ${sw.tend4h}` + (sw.motivo ? ` · ${sw.motivo}` : " · aguardando avaliação (a cada 4h)") } : { txt: "aguardando avaliação (a cada 4h)" };
+  for (const [id, x] of Object.entries(H)) L[id] = { em: x.em, txt: x.erro ? "erro: " + x.erro : x.motivo };
+  for (const r of (S.lab.tendencia || [])) { const o = L[r.hipotese] ||= { em: S.lab.atualizado, txt: "" }; o.txt += (o.txt ? " · " : "") + `${nomeAtivo(r.ativo)} ${r.comprado ? "COMPRADO" : "fora"}`; }
+  return L;
+}
 function renderPlacar() {
-  const tb = $("placar"); tb.replaceChildren();
-  for (const h of S.hipoteses) {
+  const tb = $("placar"); tb.replaceChildren(); const L = leituras(), c = calcCarteira();
+  const hs = [...S.hipoteses].sort((a, b) => (b.ativa - a.ativa) || a.ordem - b.ordem);
+  let grupo = null;
+  for (const h of hs) {
     const list = S.sugestoes.filter(s => s.hipotese === h.id), fe = list.filter(s => s.status === "fechada");
     if (!h.ativa && !list.length) continue;
+    const g = h.ativa ? h.grupo : "Encerradas";
+    if (g !== grupo) { grupo = g; const tr = tb.insertRow(); const td = cell(tr, g); td.colSpan = 7; td.className = "mut"; td.style.fontWeight = "600"; td.style.paddingTop = "10px"; }
     const soma = fe.reduce((a, s) => a + s.liquido, 0), acerto = fe.length ? fe.filter(s => s.liquido > 0).length / fe.length * 100 : null;
+    const rs = c.ops.filter(s => s.hipotese === h.id && s.status === "fechada").reduce((a, s) => a + s._rs, 0);
     const tr = tb.insertRow(); tr.style.cursor = "pointer"; tr.onclick = () => { $("placar-desc").textContent = `${h.nome}: ${h.descricao}`; };
-    cell(tr, h.nome); cell(tr, h.grupo); cell(tr, String(fe.length)); cell(tr, acerto == null ? "—" : fnum(acerto, 0) + "%");
-    cell(tr, fe.length ? fpct(soma) : "—", fe.length ? (soma > 0 ? "up" : "down") : ""); cell(tr, fe.length ? fpct(soma / fe.length) : "—");
+    if (!h.ativa) tr.style.opacity = "0.6";
+    cell(tr, h.nome); cell(tr, String(fe.length)); cell(tr, acerto == null ? "—" : fnum(acerto, 0) + "%");
+    cell(tr, fe.length ? fpct(soma) : "—", fe.length ? (soma > 0 ? "up" : "down") : "");
+    cell(tr, h.ativa && fe.length && !CART.excluir.includes(h.id) ? fbrl(rs, 2) : "—", rs > 0 ? "up" : rs < 0 ? "down" : "");
     cell(tr, String(list.length - fe.length));
+    const l = h.ativa ? L[h.id] : null, td = cell(tr, l ? `${l.em ? hm(l.em) + " · " : ""}${l.txt}` : "—"); td.style.whiteSpace = "normal"; td.style.minWidth = "220px"; td.className = "mut";
   }
 }
 function renderTend() {
@@ -347,12 +351,6 @@ function renderCarteira() {
   kpi("Contra a Selic", fbrl(c.lucro - c.selic), cor(c.lucro - c.selic));
   kpi("Maior queda", c.queda ? "−" + fnum(c.queda * 100, 1) + "%" : "0%");
   kpi("Capital p/ R$ 2 mil/mês no ritmo atual", c.ritmoMes > 0 && c.fechadas.length >= 10 ? fbrl(CART.metaMes / c.ritmoMes) : "—");
-  const tb = $("cart-hip"); tb.replaceChildren();
-  for (const h of S.hipoteses.filter(h => !CART.excluir.includes(h.id))) {
-    const l = c.ops.filter(s => s.hipotese === h.id); if (!l.length) continue;
-    const r = l.filter(s => s.status === "fechada").reduce((a, s) => a + s._rs, 0), ab = l.filter(s => s.status === "aberta").length;
-    const tr = tb.insertRow(); cell(tr, h.nome); cell(tr, `${l.length - ab} fechadas${ab ? ` · ${ab} aberta${ab > 1 ? "s" : ""}` : ""}`); cell(tr, fbrl(r, 2), cor(r));
-  }
   $("cart-nota").textContent = `Cada operação com stop arrisca 2% do saldo (≈ ${fbrl(c.saldo * CART.risco)}) até o stop, já contando as taxas; posições de tendência usam 10% do saldo cada. Sem alavancagem acima do necessário. "Capital para R$ 2 mil" aparece depois de 10 operações fechadas. Simulação — não é recomendação.`;
   if (window.LightweightCharts) {
     if (!cartChart) {
@@ -393,14 +391,6 @@ function renderAlerta() {
     cell(tr, x.grande == null ? "aguardando 24h" : `${x.grande ? "SIM" : "não"} · ${fnum(x.excursao, 1)}% para ${x.sentido === "ALTA" ? "cima" : "baixo"}`, x.grande == null ? "mut" : x.grande ? "up" : "");
   }
 }
-function renderVivo() {
-  const tb = $("vivo"); tb.replaceChildren();
-  const sw = S.swing;
-  const linhas = [["swing-analogos-t4h", sw && sw.avaliadoEm, sw ? `tendência 4h: ${sw.tend4h}` + (sw.motivo ? ` · última avaliação: ${sw.media != null ? "média " + fpct(sw.media) + ", " + fnum(sw.up * 100, 0) + "% subiram — " : ""}${sw.motivo}` : " · aguardando a próxima avaliação (a cada 4h)") : "aguardando a próxima avaliação (a cada 4h)"]];
-  const H = S.lab.hipoteses || {};
-  for (const id of ["oi-reversao", "funding-extremo", "longshort-extremo", "gap-v2"]) { const x = H[id]; linhas.push([id, x && x.em, x ? (x.erro ? "erro: " + x.erro : x.motivo) : "aguardando o servidor"]); }
-  for (const [id, em, txt] of linhas) { const tr = tb.insertRow(); cell(tr, nomeCurto(id)); cell(tr, em ? fdt(em) : "—"); const td = cell(tr, txt); td.style.whiteSpace = "normal"; }
-}
 function renderCfg() {
   if (cfgRendered) return; cfgRendered = true;
   const box = $("cfg"); box.replaceChildren();
@@ -412,7 +402,7 @@ function renderCfg() {
 async function refresh() {
   try {
     S = await loadState();
-    renderHeader(); renderEstado(); renderTable(); renderCarteira(); renderAlerta(); renderPlacar(); renderTend(); renderVivo(); renderCfg(); renderMarkers();
+    renderHeader(); renderEstado(); renderTable(); renderCarteira(); renderAlerta(); renderPlacar(); renderTend(); renderCfg(); renderMarkers();
     $("log").textContent = [...(S.lab.logs || []).map(x => "lab " + x), ...S.logs].join("\n");
   } catch (e) { $("srv").textContent = "servidor: sem resposta"; $("srv").className = "pill bad"; }
 }

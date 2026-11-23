@@ -67,6 +67,14 @@
   </header>
 
   <section class="card">
+    <h2>Carteira simulada · R$ 5 mil, risco de 2% por operação</h2>
+    <div class="kpis" id="cart-kpis"></div>
+    <div id="cart-chart" style="height:180px;margin-top:8px"></div>
+    <div class="tw" style="margin-top:8px"><table><thead><tr><th>Hipótese</th><th>Operações</th><th>Resultado (R$)</th></tr></thead><tbody id="cart-hip"></tbody></table></div>
+    <div class="mut" id="cart-nota" style="margin-top:6px"></div>
+  </section>
+
+  <section class="card">
     <h2>Indicador de grande movimento (próximas 24h, sem direção)</h2>
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="big" id="al-nivel">—</div><div id="al-prob" class="mut"></div></div>
     <div style="height:8px;border-radius:4px;background:var(--line);margin:8px 0;overflow:hidden"><div id="al-bar" style="height:100%;width:0;background:var(--acc)"></div></div>
@@ -276,6 +284,67 @@ function renderTend() {
     cell(tr, r.aberta_desde ? fdt(r.aberta_desde) : "—"); cell(tr, aberto == null ? "—" : fpct(aberto), aberto == null ? "" : aberto > 0 ? "up" : "down");
   }
 }
+// ---------- carteira simulada ----------
+const CART = { capital: 5000, risco: 0.02, custo: 0.001, fatiaPosicao: 0.10, selicAno: 0.1375, metaMes: 2000, metaPct: 0.03,
+  inicio: Date.UTC(2026, 10, 21, 22, 0), excluir: ["analogos-1h4h"] };
+const brMes = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit" });
+const fbrl = (x, d = 0) => (x == null || !isFinite(x)) ? "—" : (x < 0 ? "−" : "") + "R$ " + Math.abs(x).toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
+let cartChart = null, cartSeries = null;
+function precoAtual(s) {
+  if (s.ativo === "BTCUSDT" && s.tipo !== "posicao") return S.preco;
+  const r = (S.lab.tendencia || []).find(x => x.ativo === s.ativo); return r ? r.preco : null;
+}
+function calcCarteira() {
+  const ops = S.sugestoes.filter(s => s.criada >= CART.inicio && !CART.excluir.includes(s.hipotese)).sort((a, b) => a.criada - b.criada);
+  const fechadas = ops.filter(s => s.status === "fechada" && s.saidaT).sort((a, b) => a.saidaT - b.saidaT);
+  const saldoEm = t => CART.capital + fechadas.filter(f => f.saidaT <= t && f._rs != null).reduce((a, f) => a + f._rs, 0);
+  // dimensiona cada operação pelo saldo no momento da entrada (em ordem de entrada)
+  for (const s of ops) {
+    const saldo = saldoEm(s.criada);
+    if (s.tipo === "posicao" || s.stop == null) s._nocional = saldo * CART.fatiaPosicao;
+    else { const dist = Math.abs(s.entrada - s.stop) / s.entrada; s._nocional = saldo * CART.risco / (dist + CART.custo); }
+    if (s.status === "fechada") s._rs = s._nocional * s.liquido / 100;
+    else { const p = precoAtual(s); const sinal = s.lado === "COMPRA" ? 1 : -1; s._aberto = p ? s._nocional * (sinal * (p / s.entrada - 1) * 100 - CART.custo * 100) / 100 : null; }
+  }
+  const curva = [{ t: CART.inicio, v: CART.capital }]; let v = CART.capital, pico = v, queda = 0;
+  for (const f of fechadas) { v += f._rs; curva.push({ t: f.saidaT, v }); pico = Math.max(pico, v); queda = Math.max(queda, (pico - v) / pico); }
+  const mesAtual = brMes.format(new Date()), doMes = fechadas.filter(f => brMes.format(new Date(f.saidaT)) === mesAtual).reduce((a, f) => a + f._rs, 0);
+  const aberto = ops.filter(s => s.status === "aberta").reduce((a, s) => a + (s._aberto || 0), 0);
+  const dias = Math.max(1 / 24, (Date.now() - CART.inicio) / 864e5), selic = CART.capital * (Math.pow(1 + CART.selicAno, dias / 365) - 1);
+  const lucro = v - CART.capital, ritmoMes = lucro / CART.capital / dias * 30;
+  return { ops, fechadas, curva, saldo: v, queda, doMes, aberto, selic, dias, lucro, ritmoMes };
+}
+function renderCarteira() {
+  const c = calcCarteira(), box = $("cart-kpis"); box.replaceChildren();
+  const kpi = (l, val, cls) => { const d = document.createElement("div"); d.className = "kpi"; d.innerHTML = '<div class="l"></div><div class="v"></div>'; d.querySelector(".l").textContent = l; const e = d.querySelector(".v"); e.textContent = val; if (cls) e.classList.add(cls); box.appendChild(d); };
+  const cor = x => x > 0 ? "up" : x < 0 ? "down" : "";
+  kpi("Saldo (fechadas)", fbrl(c.saldo), cor(c.lucro));
+  kpi("Resultado no mês", fbrl(c.doMes), cor(c.doMes));
+  kpi(`Meta do mês (3%)`, fbrl(CART.capital * CART.metaPct));
+  kpi("Em aberto agora", fbrl(c.aberto), cor(c.aberto));
+  kpi(`Selic no período (${fnum(c.dias, 0)} dias)`, fbrl(c.selic));
+  kpi("Contra a Selic", fbrl(c.lucro - c.selic), cor(c.lucro - c.selic));
+  kpi("Maior queda", c.queda ? "−" + fnum(c.queda * 100, 1) + "%" : "0%");
+  kpi("Capital p/ R$ 2 mil/mês no ritmo atual", c.ritmoMes > 0 && c.fechadas.length >= 10 ? fbrl(CART.metaMes / c.ritmoMes) : "—");
+  const tb = $("cart-hip"); tb.replaceChildren();
+  for (const h of S.hipoteses.filter(h => !CART.excluir.includes(h.id))) {
+    const l = c.ops.filter(s => s.hipotese === h.id); if (!l.length) continue;
+    const r = l.filter(s => s.status === "fechada").reduce((a, s) => a + s._rs, 0), ab = l.filter(s => s.status === "aberta").length;
+    const tr = tb.insertRow(); cell(tr, h.nome); cell(tr, `${l.length - ab} fechadas${ab ? ` · ${ab} aberta${ab > 1 ? "s" : ""}` : ""}`); cell(tr, fbrl(r, 2), cor(r));
+  }
+  $("cart-nota").textContent = `Cada operação com stop arrisca 2% do saldo (≈ ${fbrl(c.saldo * CART.risco)}) até o stop, já contando as taxas; posições de tendência usam 10% do saldo cada. Sem alavancagem acima do necessário. "Capital para R$ 2 mil" aparece depois de 10 operações fechadas. Simulação — não é recomendação.`;
+  if (window.LightweightCharts) {
+    if (!cartChart) {
+      const css = getComputedStyle(document.documentElement);
+      cartChart = LightweightCharts.createChart($("cart-chart"), { autoSize: true, layout: { background: { color: "transparent" }, textColor: css.getPropertyValue("--mut").trim() },
+        grid: { vertLines: { visible: false }, horzLines: { color: css.getPropertyValue("--line").trim() } }, timeScale: { timeVisible: true }, rightPriceScale: { borderVisible: false } });
+      cartSeries = cartChart.addLineSeries({ color: "#60a5fa", lineWidth: 2 });
+    }
+    const pts = []; let last = 0;
+    for (const p of c.curva) { let t = Math.floor(p.t / 1000) + tzOff; if (t <= last) t = last + 1; last = t; pts.push({ time: t, value: +p.v.toFixed(2) }); }
+    cartSeries.setData(pts); cartChart.timeScale().fitContent();
+  }
+}
 const AL_HIST = { "BAIXO": [47, 13], "NORMAL": [42, 20], "ALTO": [8, 39], "MUITO ALTO": [3, 62] }; // teste fora da amostra: modelo treinado até 2022, aplicado em 2023–26 na Binance
 function renderAlerta() {
   const a = S.alerta, cor = { "BAIXO": "var(--mut)", "NORMAL": "var(--fg)", "ALTO": "var(--warn)", "MUITO ALTO": "var(--down)" };
@@ -317,7 +386,7 @@ function renderCfg() {
 async function refresh() {
   try {
     S = await loadState();
-    renderHeader(); renderEstado(); renderTable(); renderAlerta(); renderPlacar(); renderTend(); renderVivo(); renderCfg(); renderMarkers();
+    renderHeader(); renderEstado(); renderTable(); renderCarteira(); renderAlerta(); renderPlacar(); renderTend(); renderVivo(); renderCfg(); renderMarkers();
     $("log").textContent = [...(S.lab.logs || []).map(x => "lab " + x), ...S.logs].join("\n");
   } catch (e) { $("srv").textContent = "servidor: sem resposta"; $("srv").className = "pill bad"; }
 }

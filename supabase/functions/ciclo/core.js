@@ -179,7 +179,7 @@ const Core = (() => {
       const kEnd = k.t + 60e3;
       if (kEnd > nowMs) break; // vela ainda aberta
       const hitStop = dir === 1 ? k.l <= s.stop : k.h >= s.stop;
-      const hitAlvo = dir === 1 ? k.h >= s.alvo : k.l <= s.alvo;
+      const hitAlvo = s.alvo != null && (dir === 1 ? k.h >= s.alvo : k.l <= s.alvo);
       if (hitStop) { saida = s.stop; saidaT = kEnd; motivo = hitAlvo ? "stop (stop e alvo na mesma vela: conta o pior)" : "stop"; break; }
       if (hitAlvo) { saida = s.alvo; saidaT = kEnd; motivo = "alvo"; break; }
       if (kEnd >= s.expira) { saida = k.c; saidaT = kEnd; motivo = "prazo"; break; }

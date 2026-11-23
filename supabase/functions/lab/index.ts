@@ -155,26 +155,38 @@ async function hipotesesC(log: (m: string) => void) {
     out["longshort-extremo"] = { ratio, z, motivo, em: lastT };
   } catch (e) { out["longshort-extremo"] = { erro: String(e) }; }
 
-  // C4: gap de fim de semana (domingo 18h NY)
+  // C4 (v2): estouro do gap de fim de semana. Se o BTC andou >= 2% entre sexta 17h e domingo 18h (NY) e, até a sexta
+  // seguinte, o movimento chega ao dobro (preço de domingo + o mesmo movimento), entra A FAVOR por 24h, stop 1,5σ, sem alvo.
   try {
-    const ny = nyParts(now);
-    let motivo = "aguardando domingo 18h (NY)";
-    if (ny.wd === "Sun" && ny.hour >= 18) {
-      // preço de sexta 17h NY = fechamento da vela que termina nesse horário
-      let pSexta: number | null = null, tSexta = 0;
-      for (const k of fechadas) { const tc = +k[6] + 1; const p = nyParts(tc); if (p.wd === "Fri" && p.hour === 17) { pSexta = +k[4]; tSexta = tc; } }
-      if (pSexta) {
-        const mov = (price / pSexta - 1) * 100;
-        motivo = `movimento desde sexta 17h: ${mov.toFixed(2)}%`;
-        if (Math.abs(mov) >= 2) {
-          const lado = mov > 0 ? -1 : 1;
-          const expira = tSexta + 7 * D1;
-          motivo = await abrir("gap-fds", `gap_${tSexta}`, lado, price, price * (1 + Math.sign(mov) * Math.abs(mov) / 100), pSexta, expira, mov, motivo, log);
-        } else motivo += " — abaixo de 2%";
+    const k15 = await getJSON(`${FAPI}/fapi/v1/klines?symbol=BTCUSDT&interval=15m&limit=1000`); // ~10 dias
+    // última sexta 17h NY (fechamento) e o domingo 18h seguinte, a partir das velas de 1h
+    let iSex = -1;
+    for (let i = fechadas.length - 1; i >= 0; i--) { const p = nyParts(+fechadas[i][6] + 1); if (p.wd === "Fri" && p.hour === 17) { iSex = i; break; } }
+    let motivo = "aguardando o fim de semana";
+    if (iSex >= 0) {
+      const tSex = +fechadas[iSex][6] + 1, pSex = +fechadas[iSex][4];
+      const iDom = fechadas.findIndex((k: string[], i: number) => i > iSex && (() => { const p = nyParts(+k[6] + 1); return p.wd === "Sun" && p.hour === 18; })());
+      if (iDom < 0) motivo = `sexta 17h: ${pSex.toFixed(0)} — aguardando domingo 18h (NY)`;
+      else {
+        const tDom = +fechadas[iDom][6] + 1, pDom = +fechadas[iDom][4], W = pDom / pSex - 1, sg = Math.sign(W);
+        const fimSemana = tSex + 7 * D1, nivel = pDom * (1 + W);
+        motivo = `fds ${(W * 100).toFixed(2)}% (sexta ${pSex.toFixed(0)} → domingo ${pDom.toFixed(0)})`;
+        if (Math.abs(W) < 0.02) motivo += " — abaixo de 2%, sem operação nesta semana";
+        else if (now > fimSemana) motivo += " — semana encerrada sem estouro";
+        else {
+          // primeira vela de 15 min, depois de domingo 18h, que tocou o nível de estouro
+          const k = k15.find((x: string[]) => +x[0] >= tDom && (sg > 0 ? +x[2] >= nivel : +x[3] <= nivel));
+          if (!k) motivo += ` — estouro em ${nivel.toFixed(0)} ainda não aconteceu`;
+          else if (now - +k[0] > 45 * 60e3) motivo += ` — estourou ${nivel.toFixed(0)} às ${new Date(+k[0]).toISOString().slice(11, 16)} UTC (fora da janela de entrada)`;
+          else {
+            const lado = sg;
+            motivo = await abrir("gap-v2", `gapv2_${tSex}`, lado, price, price * (1 - lado * 1.5 * sig24), null as unknown as number, now + 24 * H1, W * 100, motivo + ` — estourou ${nivel.toFixed(0)}`, log);
+          }
+        }
       }
     }
-    out["gap-fds"] = { motivo, em: now };
-  } catch (e) { out["gap-fds"] = { erro: String(e) }; }
+    out["gap-v2"] = { motivo, em: now };
+  } catch (e) { out["gap-v2"] = { erro: String(e) }; }
   return out;
 }
 

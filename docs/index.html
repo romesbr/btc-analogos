@@ -209,7 +209,7 @@ function renderMarkers() {
   for (const pl of priceLines) series.removePriceLine(pl); priceLines = [];
   for (const s of ops.filter(x => x.status === "aberta" && x.stop != null)) {
     priceLines.push(series.createPriceLine({ price: s.stop, color: "#ef4444", lineStyle: 2, lineWidth: 1, title: `stop ${nomeCurto(s.hipotese)}` }));
-    priceLines.push(series.createPriceLine({ price: s.alvo, color: "#22c55e", lineStyle: 2, lineWidth: 1, title: `alvo ${nomeCurto(s.hipotese)}` }));
+    if (s.alvo != null) priceLines.push(series.createPriceLine({ price: s.alvo, color: "#22c55e", lineStyle: 2, lineWidth: 1, title: `alvo ${nomeCurto(s.hipotese)}` }));
     priceLines.push(series.createPriceLine({ price: s.entrada, color: "#60a5fa", lineStyle: 0, lineWidth: 1, title: `entrada ${nomeCurto(s.hipotese)}` }));
   }
 }
@@ -257,7 +257,7 @@ function renderTable() {
 }
 const ATIVOS = { BTCUSDT: "BTC", ETHUSDT: "ETH", SOLUSDT: "SOL", "^GSPC": "S&P 500", "^BVSP": "Ibovespa" };
 const CURTO = { "tend-ma50": "Média 50d", "tend-mom28": "Momentum 28d", "protecao-ma200": "S&P média 200d", "protecao-ma100": "Ibov média 100d",
-  "swing-analogos-t4h": "Swing 48h", "oi-reversao": "Open interest", "funding-extremo": "Funding", "longshort-extremo": "Compradas/vendidas", "gap-fds": "Gap fim de semana", "analogos-1h4h": "Day trade 1h/4h" };
+  "swing-analogos-t4h": "Swing 48h", "oi-reversao": "Open interest", "funding-extremo": "Funding", "longshort-extremo": "Compradas/vendidas", "gap-fds": "Gap fds (v1)", "gap-v2": "Gap v2 (estouro)", "analogos-1h4h": "Day trade 1h/4h" };
 const nomeAtivo = a => ATIVOS[a] || a || "BTC";
 const nomeCurto = h => CURTO[h] || h || "—";
 function cell(tr, v, cls) { const td = tr.insertCell(); td.textContent = v; if (cls) td.className = cls; return td; }
@@ -372,7 +372,7 @@ function renderVivo() {
   const sw = S.swing;
   const linhas = [["swing-analogos-t4h", sw && sw.avaliadoEm, sw ? `tendência 4h: ${sw.tend4h}` + (sw.motivo ? ` · última avaliação: ${sw.media != null ? "média " + fpct(sw.media) + ", " + fnum(sw.up * 100, 0) + "% subiram — " : ""}${sw.motivo}` : " · aguardando a próxima avaliação (a cada 4h)") : "aguardando a próxima avaliação (a cada 4h)"]];
   const H = S.lab.hipoteses || {};
-  for (const id of ["oi-reversao", "funding-extremo", "longshort-extremo", "gap-fds"]) { const x = H[id]; linhas.push([id, x && x.em, x ? (x.erro ? "erro: " + x.erro : x.motivo) : "aguardando o servidor"]); }
+  for (const id of ["oi-reversao", "funding-extremo", "longshort-extremo", "gap-v2"]) { const x = H[id]; linhas.push([id, x && x.em, x ? (x.erro ? "erro: " + x.erro : x.motivo) : "aguardando o servidor"]); }
   for (const [id, em, txt] of linhas) { const tr = tb.insertRow(); cell(tr, nomeCurto(id)); cell(tr, em ? fdt(em) : "—"); const td = cell(tr, txt); td.style.whiteSpace = "normal"; }
 }
 function renderCfg() {

@@ -99,7 +99,7 @@
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="big" id="al-nivel">—</div><div id="al-prob" class="mut"></div></div>
     <div style="height:8px;border-radius:4px;background:var(--line);margin:8px 0;overflow:hidden"><div id="al-bar" style="height:100%;width:0;background:var(--acc)"></div></div>
     <div class="mut" id="al-meta"></div>
-    <div class="tw" style="margin-top:8px"><table><thead><tr><th>Nível</th><th>Conferidas</th><th>Viraram grande</th><th>Teste 2023–26</th></tr></thead><tbody id="al-placar"></tbody></table></div>
+    <div class="tw" style="margin-top:8px"><table><thead><tr><th>Nível</th><th>Janelas de 24h conferidas</th><th>Viraram grande</th><th>Teste 2023–26</th></tr></thead><tbody id="al-placar"></tbody></table></div>
     <details style="margin-top:8px"><summary>Últimas leituras, hora a hora</summary>
       <div class="tw" style="margin-top:6px"><table><thead><tr><th>Hora</th><th>Nível</th><th>Chance</th><th>"Grande" seria</th><th>Aconteceu</th></tr></thead><tbody id="al-hist"></tbody></table></div>
     </details>
@@ -109,16 +109,6 @@
     <h2>5 · Tendência diária (BTC, ETH, SOL, S&amp;P 500, Ibovespa)</h2>
     <div class="mut" id="tend-meta"></div>
     <div class="tw"><table><thead><tr><th>Ativo</th><th>Regra</th><th>Situação</th><th>Último fechamento</th><th>Referência</th><th>Distância</th><th>Desde</th><th>Resultado aberto</th></tr></thead><tbody id="tend"></tbody></table></div>
-  </section>
-
-  <section class="card">
-    <details>
-      <summary>Day trade 1h/4h por casos parecidos (desligado — só leitura)</summary>
-      <div class="mut" id="estado-meta" style="margin-top:8px">Carregando…</div>
-      <div class="grid2" id="estado-h"></div>
-      <div class="mut" style="margin:10px 0 4px">Momentos mais parecidos com agora e o que veio depois:</div>
-      <div class="tw"><table><thead><tr><th>Data/hora (Brasília)</th><th>Distância</th><th>1 h depois</th><th>4 h depois</th></tr></thead><tbody id="nb"></tbody></table></div>
-    </details>
   </section>
 
   <section class="card">
@@ -251,6 +241,7 @@ function renderHeader() {
   $("price").textContent = S.preco ? "US$ " + fnum(S.preco, 1) : "—";
 }
 function renderEstado() {
+  if (!$("estado-h")) return;
   const e = S.estado, box = $("estado-h"); box.replaceChildren();
   if (!e) { $("estado-meta").textContent = "Servidor ainda carregando o histórico (na primeira vez leva alguns minutos)…"; return; }
   const m = S.proximaAvaliacao ? Math.max(0, Math.round((S.proximaAvaliacao - Date.now()) / 60e3)) : null;
@@ -278,7 +269,7 @@ function renderTable() {
     const tr = tb.insertRow();
     const dp = s.ativo && s.ativo.startsWith("^") ? 0 : s.entrada < 10 ? 4 : 1;
     const vals = [fdt(s.criada), nomeCurto(s.hipotese), nomeAtivo(s.ativo), s.tipo === "posicao" ? "até virar" : s.horizonte + " h", s.lado, fnum(s.entrada, dp), fnum(s.stop, dp), fnum(s.alvo, dp),
-      s.concordancia == null ? "—" : fnum(s.concordancia * 100, 0) + "%", s.status === "aberta" ? "aberta" : s.motivo, s.saida ? fnum(s.saida, dp) : "—", s.status === "fechada" ? fpct(s.liquido) : "—"];
+      s.concordancia == null ? "—" : fnum(s.concordancia * 100, 0) + "%", (s.status === "aberta" ? "aberta" : s.motivo) + (s._fora ? " · fora da carteira" : ""), s.saida ? fnum(s.saida, dp) : "—", s.status === "fechada" ? fpct(s.liquido) : "—"];
     vals.forEach((v, j) => { const td = tr.insertCell(); td.textContent = v; if (j === 4) td.className = s.lado === "COMPRA" ? "up" : "down"; if (j === 11 && s.status === "fechada") td.className = s.liquido > 0 ? "up" : "down"; });
   }
   if (!S.sugestoes.length) { const td = tb.insertRow().insertCell(); td.colSpan = 12; td.className = "mut"; td.textContent = "Nenhuma sugestão ainda. Cada hipótese só abre quando a sua regra dispara."; }
@@ -328,7 +319,8 @@ function renderTend() {
   }
 }
 // ---------- carteira simulada ----------
-const CART = { capital: 5000, risco: 0.02, custo: 0.001, fatiaPosicao: 0.10, selicAno: 0.1375, metaMes: 2000, metaPct: 0.03,
+const CART = { capital: 5000, risco: 0.02, maxAbertas: 2, volAlvo: 50, limiteDesde: Date.UTC(2026, 10, 24, 23, 50), // limite vale só a partir de quando foi criado (sem reescrever o passado)
+  custo: 0.001, fatiaPosicao: 0.10, selicAno: 0.1375, metaMes: 2000, metaPct: 0.03,
   inicio: Date.UTC(2026, 10, 21, 22, 0), excluir: ["analogos-1h4h"] };
 const brMes = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit" });
 const fbrl = (x, d = 0) => (x == null || !isFinite(x)) ? "—" : (x < 0 ? "−" : "") + "R$ " + Math.abs(x).toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -342,15 +334,23 @@ function calcCarteira() {
   const fechadas = ops.filter(s => s.status === "fechada" && s.saidaT).sort((a, b) => a.saidaT - b.saidaT);
   const saldoEm = t => CART.capital + fechadas.filter(f => f.saidaT <= t && f._rs != null).reduce((a, f) => a + f._rs, 0);
   // dimensiona cada operação pelo saldo no momento da entrada (em ordem de entrada)
+  const abertasCart = []; // operações com stop que estão na carteira
   for (const s of ops) {
     const saldo = saldoEm(s.criada);
-    if (s.tipo === "posicao" || s.stop == null) s._nocional = saldo * CART.fatiaPosicao;
+    s._fora = false;
+    if (s.tipo !== "posicao" && s.stop != null) {
+      // limite de risco: no máximo 2 operações (4%) ao mesmo tempo e nunca lados opostos (vale a partir de 24/11)
+      const vivas = abertasCart.filter(o => !(o.status === "fechada" && o.saidaT <= s.criada));
+      if (s.criada >= CART.limiteDesde && (vivas.length >= CART.maxAbertas || vivas.some(o => o.lado !== s.lado))) { s._fora = true; s._rs = 0; s._aberto = 0; continue; }
+      abertasCart.push(s);
+    }
+    if (s.tipo === "posicao" || s.stop == null) s._nocional = saldo * CART.fatiaPosicao * (s.prev ? Math.min(1, CART.volAlvo / s.prev) : 1);
     else { const dist = Math.abs(s.entrada - s.stop) / s.entrada; s._nocional = saldo * CART.risco / (dist + CART.custo); }
     if (s.status === "fechada") s._rs = s._nocional * s.liquido / 100;
     else { const p = precoAtual(s); const sinal = s.lado === "COMPRA" ? 1 : -1; s._aberto = p ? s._nocional * (sinal * (p / s.entrada - 1) * 100 - CART.custo * 100) / 100 : null; }
   }
   const curva = [{ t: CART.inicio, v: CART.capital }]; let v = CART.capital, pico = v, queda = 0;
-  for (const f of fechadas) { v += f._rs; curva.push({ t: f.saidaT, v }); pico = Math.max(pico, v); queda = Math.max(queda, (pico - v) / pico); }
+  for (const f of fechadas) { if (f._fora) continue; v += f._rs; curva.push({ t: f.saidaT, v }); pico = Math.max(pico, v); queda = Math.max(queda, (pico - v) / pico); }
   const mesAtual = brMes.format(new Date()), doMes = fechadas.filter(f => brMes.format(new Date(f.saidaT)) === mesAtual).reduce((a, f) => a + f._rs, 0);
   const aberto = ops.filter(s => s.status === "aberta").reduce((a, s) => a + (s._aberto || 0), 0);
   const dias = Math.max(1 / 24, (Date.now() - CART.inicio) / 864e5), selic = CART.capital * (Math.pow(1 + CART.selicAno, dias / 365) - 1);
@@ -369,7 +369,7 @@ function renderCarteira() {
   kpi("Contra a Selic", fbrl(c.lucro - c.selic), cor(c.lucro - c.selic));
   kpi("Maior queda", c.queda ? "−" + fnum(c.queda * 100, 1) + "%" : "0%");
   kpi("Capital p/ R$ 2 mil/mês no ritmo atual", c.ritmoMes > 0 && c.fechadas.length >= 10 ? fbrl(CART.metaMes / c.ritmoMes) : "—");
-  $("cart-nota").textContent = `Cada operação com stop arrisca 2% do saldo (≈ ${fbrl(c.saldo * CART.risco)}) até o stop, já contando as taxas; posições de tendência usam 10% do saldo cada. Sem alavancagem acima do necessário. "Capital para R$ 2 mil" aparece depois de 10 operações fechadas. Simulação — não é recomendação.`;
+  $("cart-nota").textContent = `Cada operação com stop arrisca 2% do saldo (≈ ${fbrl(c.saldo * CART.risco)}) até o stop, já contando as taxas; no máximo 2 ao mesmo tempo (4%) e nunca em lados opostos — sinais além disso contam no placar da hipótese, mas ficam fora da carteira. Posições de tendência usam até 10% do saldo cada, menos quando a volatilidade passa de 50% ao ano. Sem alavancagem acima do necessário. "Capital para R$ 2 mil" aparece depois de 10 operações fechadas. Simulação — não é recomendação.`;
   if (window.LightweightCharts) {
     if (!cartChart) {
       const css = getComputedStyle(document.documentElement);
@@ -399,7 +399,10 @@ function renderAlerta() {
   }
   const tb = $("al-placar"); tb.replaceChildren();
   for (const nv of ["BAIXO", "NORMAL", "ALTO", "MUITO ALTO"]) {
-    const ok = S.alertas.filter(x => x.nivel === nv && x.grande != null), g = ok.filter(x => x.grande).length;
+    // janelas de 24h que não se sobrepõem: depois de contar uma leitura, ignora as próximas 24h desse nível
+    const ok = []; let ult = -Infinity;
+    for (const x of [...S.alertas].filter(x => x.nivel === nv && x.grande != null).sort((a, b) => a.dec_ts - b.dec_ts)) if (x.dec_ts - ult >= 24 * 3600e3) { ok.push(x); ult = x.dec_ts; }
+    const g = ok.filter(x => x.grande).length;
     const tr = tb.insertRow(); cell(tr, nv); cell(tr, String(ok.length)); cell(tr, ok.length ? fnum(g / ok.length * 100, 0) + "%" : "—");
     cell(tr, `${AL_HIST[nv][1]}% (${AL_HIST[nv][0]}% do tempo)`, "mut");
   }
@@ -420,7 +423,7 @@ function renderCfg() {
 async function refresh() {
   try {
     S = await loadState();
-    renderHeader(); renderEstado(); renderTable(); renderCarteira(); renderAlerta(); renderPlacar(); renderTend(); renderCfg(); renderMarkers();
+    calcCarteira(); renderHeader(); renderEstado(); renderTable(); renderCarteira(); renderAlerta(); renderPlacar(); renderTend(); renderCfg(); renderMarkers();
     $("log").textContent = [...(S.lab.logs || []).map(x => "lab " + x), ...S.logs].join("\n");
   } catch (e) { $("srv").textContent = "servidor: sem resposta"; $("srv").className = "pill bad"; }
 }

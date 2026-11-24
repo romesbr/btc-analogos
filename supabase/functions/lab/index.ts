@@ -7,6 +7,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const H1 = 3600e3, D1 = 86400e3, FEE = 0.0005;
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}").default;
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, key, { auth: { persistSession: false } });
+let ATIVAS = new Set<string>();
 const FAPI = "https://fapi.binance.com", SPOT = "https://data-api.binance.vision/api/v3";
 
 async function getJSON(url: string, headers: Record<string, string> = {}) {
@@ -68,9 +69,12 @@ async function tendencia(log: (m: string) => void) {
       const dia = d[d.length - 1], s = sinal(d, a.regra);
       // deno-lint-ignore no-explicit-any
       const aberta = abertas.find((x: any) => x.hipotese === a.hip && x.ativo === ativo);
-      if (s.on && !aberta) {
+      // volatilidade anualizada dos últimos 20 dias (para dimensionar a posição na carteira)
+      const cs = d.map((x) => x.c), rs = cs.slice(-21).map((x, i, a) => i ? Math.log(x / a[i - 1]) : 0).slice(1);
+      const vol20 = sd(rs) * Math.sqrt(ativo.startsWith("^") ? 252 : 365) * 100;
+      if (s.on && !aberta && ATIVAS.has(a.hip)) {
         await must(sb.from("sugestoes").upsert({ id: `${a.hip}_${ativo}_${dia.t}`, dec_ts: dia.t, criada: dia.t, horizonte: 0, lado: "COMPRA", entrada: dia.c,
-          stop: null, alvo: null, expira: null, prev: null, concordancia: null, status: "aberta", hipotese: a.hip, ativo, tipo: "posicao" }));
+          stop: null, alvo: null, expira: null, prev: vol20, concordancia: null, status: "aberta", hipotese: a.hip, ativo, tipo: "posicao" }));
         log(`[${a.hip}] ${ativo}: entrou comprado a ${dia.c}`);
       } else if (!s.on && aberta && dia.t > Number(aberta.criada)) {
         const bruto = (dia.c / aberta.entrada - 1) * 100;
@@ -78,7 +82,8 @@ async function tendencia(log: (m: string) => void) {
           liquido: bruto - 2 * FEE * 100 }).eq("id", aberta.id));
         log(`[${a.hip}] ${ativo}: saiu a ${dia.c} (${(bruto - 0.1).toFixed(2)}%)`);
       }
-      painel.push({ hipotese: a.hip, ativo, regra: a.regra, comprado: s.on, preco: dia.c, referencia: s.ref, dia: dia.t,
+      if (!ATIVAS.has(a.hip) && !aberta) continue;
+      painel.push({ hipotese: a.hip, ativo, regra: a.regra, comprado: s.on, vol20, preco: dia.c, referencia: s.ref, dia: dia.t,
         aberta_desde: s.on ? (aberta ? Number(aberta.criada) : dia.t) : null, entrada: s.on ? (aberta ? aberta.entrada : dia.c) : null });
     } catch (e) { log(`Tendência ${ativo}: ${e}`); }
   }
@@ -87,6 +92,7 @@ async function tendencia(log: (m: string) => void) {
 
 // ---------------- C) hipóteses ao vivo (BTCUSDT perpétuo) ----------------
 async function abrir(hip: string, id: string, lado: number, preco: number, stop: number, alvo: number, expira: number, prev: number | null, nota: string, log: (m: string) => void) {
+  if (!ATIVAS.has(hip)) return "hipótese desligada (só leitura)";
   const ab = await must(sb.from("sugestoes").select("id").eq("status", "aberta").eq("hipotese", hip));
   if (ab.length) return "já existe operação aberta";
   const ja = await must(sb.from("sugestoes").select("id").eq("id", id));
@@ -194,6 +200,7 @@ Deno.serve(async (req) => {
   const tk = await sb.from("interno").select("valor").eq("chave", "ciclo_token").maybeSingle();
   if (!tk.data?.valor || req.headers.get("x-ciclo-token") !== tk.data.valor) return new Response("não autorizado", { status: 401 });
   const logs: string[] = []; const log = (m: string) => { logs.push(`[${new Date().toISOString()}] ${m}`); console.log(m); };
+  ATIVAS = new Set(((await sb.from("hipoteses").select("id").eq("ativa", true)).data ?? []).map((x: { id: string }) => x.id));
   const ant = (await sb.from("estado_lab").select("dados").eq("id", 1).maybeSingle()).data?.dados ?? {};
   // deno-lint-ignore no-explicit-any
   const estado: any = { ...ant, atualizado: Date.now() };

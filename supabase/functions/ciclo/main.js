@@ -170,7 +170,8 @@ Deno.serve(async (req) => {
       const s80 = media(80), s200 = media(200);
       const tend4h = cl > s80 && s80 > s200 ? 1 : cl < s80 && s80 < s200 ? -1 : 0;
       let swing = { tend4h: tend4h === 1 ? "ALTA" : tend4h === -1 ? "BAIXA" : "NEUTRA" };
-      if (Math.round(decTs / H1) % 4 === 0) {
+      const swAtiva = !!(await sb.from("hipoteses").select("ativa").eq("id", "swing-analogos-t4h").maybeSingle()).data?.ativa;
+      if (swAtiva && Math.round(decTs / H1) % 4 === 0) {
         const a48 = Core.analogs(F, qi, 48, decTs, { p: cfg.wPreco, c: cfg.wCal, m: cfg.wMacro }, cfg.k);
         if (a48) {
           const lado = a48.mean > 0 ? 1 : -1, agree = a48.mean > 0 ? a48.up : 1 - a48.up;

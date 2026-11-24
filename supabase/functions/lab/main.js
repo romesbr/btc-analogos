@@ -2,6 +2,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const H1 = 36e5, D1 = 864e5, FEE = 5e-4;
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}").default;
 const sb = createClient(Deno.env.get("SUPABASE_URL"), key, { auth: { persistSession: false } });
+let ATIVAS = /* @__PURE__ */ new Set();
 const FAPI = "https://fapi.binance.com", SPOT = "https://data-api.binance.vision/api/v3";
 async function getJSON(url, headers = {}) {
   for (let i = 0; i < 3; i++) {
@@ -73,7 +74,9 @@ async function tendencia(log) {
       if (d.length < 210) continue;
       const dia = d[d.length - 1], s = sinal(d, a.regra);
       const aberta = abertas.find((x) => x.hipotese === a.hip && x.ativo === ativo);
-      if (s.on && !aberta) {
+      const cs = d.map((x) => x.c), rs = cs.slice(-21).map((x, i, a2) => i ? Math.log(x / a2[i - 1]) : 0).slice(1);
+      const vol20 = sd(rs) * Math.sqrt(ativo.startsWith("^") ? 252 : 365) * 100;
+      if (s.on && !aberta && ATIVAS.has(a.hip)) {
         await must(sb.from("sugestoes").upsert({
           id: `${a.hip}_${ativo}_${dia.t}`,
           dec_ts: dia.t,
@@ -84,7 +87,7 @@ async function tendencia(log) {
           stop: null,
           alvo: null,
           expira: null,
-          prev: null,
+          prev: vol20,
           concordancia: null,
           status: "aberta",
           hipotese: a.hip,
@@ -106,11 +109,13 @@ async function tendencia(log) {
         }).eq("id", aberta.id));
         log(`[${a.hip}] ${ativo}: saiu a ${dia.c} (${(bruto - 0.1).toFixed(2)}%)`);
       }
+      if (!ATIVAS.has(a.hip) && !aberta) continue;
       painel.push({
         hipotese: a.hip,
         ativo,
         regra: a.regra,
         comprado: s.on,
+        vol20,
         preco: dia.c,
         referencia: s.ref,
         dia: dia.t,
@@ -124,6 +129,7 @@ async function tendencia(log) {
   return painel;
 }
 async function abrir(hip, id, lado, preco, stop, alvo, expira, prev, nota, log) {
+  if (!ATIVAS.has(hip)) return "hip\xF3tese desligada (s\xF3 leitura)";
   const ab = await must(sb.from("sugestoes").select("id").eq("status", "aberta").eq("hipotese", hip));
   if (ab.length) return "j\xE1 existe opera\xE7\xE3o aberta";
   const ja = await must(sb.from("sugestoes").select("id").eq("id", id));
@@ -255,6 +261,7 @@ Deno.serve(async (req) => {
     logs.push(`[${(/* @__PURE__ */ new Date()).toISOString()}] ${m}`);
     console.log(m);
   };
+  ATIVAS = new Set(((await sb.from("hipoteses").select("id").eq("ativa", true)).data ?? []).map((x) => x.id));
   const ant = (await sb.from("estado_lab").select("dados").eq("id", 1).maybeSingle()).data?.dados ?? {};
   const estado = { ...ant, atualizado: Date.now() };
   try {

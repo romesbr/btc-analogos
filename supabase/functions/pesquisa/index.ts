@@ -151,7 +151,7 @@ async function ouro() {
 // regressão logística por IRLS (Newton) com leve regularização; X já padronizado, com coluna de 1
 function logit(X: number[][], y: number[], lam = 1) {
   const p = X[0].length; let w = new Array(p).fill(0);
-  for (let it = 0; it < 12; it++) {
+  for (let it = 0; it < 8; it++) {
     const H = Array.from({ length: p }, () => new Array(p).fill(0)), g = new Array(p).fill(0);
     for (let i = 0; i < X.length; i++) {
       const xi = X[i]; let z = 0; for (let j = 0; j < p; j++) z += w[j] * xi[j];
@@ -169,7 +169,7 @@ function logit(X: number[][], y: number[], lam = 1) {
   return w;
 }
 function auc(ps: [number, number][]) { const o = [...ps].sort((a, b) => a[0] - b[0]); let pos = 0, rs = 0; o.forEach((x, j) => { if (x[1]) { pos++; rs += j + 1; } }); return (rs - pos * (pos + 1) / 2) / (pos * (o.length - pos)); }
-async function dvol() {
+async function dvol(usaIV: boolean) {
   // índice de volatilidade implícita do BTC (Deribit), de hora em hora
   const iv = new Map<number, number>(); const ini = Date.UTC(2021, 2, 24), agora = Date.now();
   for (let s = ini; s < agora; s += 1000 * H1) {
@@ -185,19 +185,19 @@ async function dvol() {
   const lr = bars.map((b, i) => i ? Math.log(b.c / bars[i - 1].c) : 0);
   const cols = Alerta.COEF.producao.cols as string[];
   const rows: { t: number; base: number[]; extra: number[]; y: number }[] = [];
-  for (let i = 9600; i + 24 < n; i += 3) {
+  for (let i = 9600; i + 24 < n; i += 6) {
     const tDec = bars[i].t + H1; const ivNow = iv.get(bars[i].t), iv24 = iv.get(bars[i].t - 24 * H1);
     if (ivNow == null || iv24 == null) continue;
     const hist: number[] = []; for (let k = 1; k <= 720; k += 6) { const x = iv.get(bars[i].t - k * H1); if (x != null) hist.push(x); }
     if (hist.length < 60) continue;
     const f = Alerta.features(P, i, evMs); if (!f) continue;
-    const win = Array.from(E.subarray(i - 24 - 719, i - 23)).sort((a, b) => a - b); const med = (win[359] + win[360]) / 2;
+    const win: number[] = []; for (let k = i - 24 - 719; k <= i - 24; k += 6) win.push(E[k]); win.sort((a, b) => a - b); const med = win[Math.floor(win.length / 2)];
     const rv720 = sd(lr.slice(i - 719, i + 1)) * Math.sqrt(8760) * 100, rv24 = sd(lr.slice(i - 23, i + 1)) * Math.sqrt(8760) * 100;
     const extra = [Math.log(ivNow / rv720), Math.log(ivNow / rv24), Math.log(ivNow / iv24), (ivNow - mean(hist)) / sd(hist)].map((x) => Math.max(-5, Math.min(5, x)));
     rows.push({ t: tDec, base: cols.map((k) => f[k]), extra, y: E[i] >= 1.75 * med ? 1 : 0 });
   }
   const res: any = { n: rows.length, desde: new Date(rows[0].t).toISOString().slice(0, 10) };
-  for (const [nome, usa] of [["sem volatilidade implícita", false], ["com volatilidade implícita", true]] as [string, boolean][]) {
+  for (const [nome, usa] of [[usaIV ? "com volatilidade implícita" : "sem volatilidade implícita", usaIV]] as [string, boolean][]) {
     const pts: [number, number][] = [];
     for (const ano of [2023, 2024, 2025, 2026]) {
       const t0 = Date.UTC(ano, 0, 1), t1 = Date.UTC(ano + 1, 0, 1);
@@ -225,7 +225,7 @@ Deno.serve(async (req) => {
   if (req.headers.get("x-ciclo-token") !== tk.data?.valor) return new Response("nao autorizado", { status: 401 });
   const { modo } = await req.json();
   try {
-    const r = modo === "funding" ? await funding() : modo === "ouro" ? await ouro() : modo === "dvol" ? await dvol() : await correl();
+    const r = modo === "funding" ? await funding() : modo === "ouro" ? await ouro() : modo === "dvol" ? await dvol(false) : modo === "dvol-iv" ? await dvol(true) : await correl();
     return new Response(JSON.stringify(r), { headers: { "content-type": "application/json" } });
   } catch (e) { return new Response(JSON.stringify({ erro: String(e) }), { status: 500 }); }
 });

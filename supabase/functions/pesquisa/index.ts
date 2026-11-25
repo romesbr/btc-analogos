@@ -80,12 +80,77 @@ async function correl() {
   }
   return out;
 }
+
+async function fred(id: string) {
+  const r = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}`, { headers: { "User-Agent": "Mozilla/5.0" } });
+  const txt = await r.text(); const m = new Map<string, number>();
+  for (const l of txt.split("\n").slice(1)) { const [d, v] = l.split(","); if (v && v !== "." && !isNaN(+v)) m.set(d, +v); }
+  return m;
+}
+async function yahooDesde(sym: string, ano: number) {
+  const p2 = Math.floor(Date.now() / 1000), p1 = Math.floor(Date.UTC(ano, 0, 1) / 1000);
+  const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=${p1}&period2=${p2}&interval=1d`, { headers: { "User-Agent": "Mozilla/5.0" } });
+  const j = await r.json(); const x = j.chart.result[0]; const ts: number[] = x.timestamp, q = x.indicators.quote[0];
+  const out: { d: string; c: number; h: number; l: number }[] = [];
+  ts.forEach((t, i) => { if (q.close[i] != null) out.push({ d: new Date((t + x.meta.gmtoffset) * 1000).toISOString().slice(0, 10), c: q.close[i], h: q.high[i] ?? q.close[i], l: q.low[i] ?? q.close[i] }); });
+  return out;
+}
+async function ouro() {
+  const g = await yahooDesde("GC=F", 2000); const n = g.length;
+  const c = g.map((x) => x.c), r = c.map((x, i) => i ? x / c[i - 1] - 1 : 0);
+  const FEE = 0.0005, ANO = 252;
+  const ma = (k: number, i: number) => i < k - 1 ? NaN : c.slice(i - k + 1, i + 1).reduce((s, x) => s + x, 0) / k;
+  const vol20 = (i: number) => i < 21 ? NaN : sd(r.slice(i - 19, i + 1)) * Math.sqrt(ANO);
+  function stats(sinal: (i: number) => number, nome: string) {
+    const ret: number[] = []; let pos = 0; const dias: string[] = [];
+    for (let i = 250; i < n; i++) { const novo = sinal(i - 1); ret.push(novo * r[i] - Math.abs(novo - pos) * FEE); pos = novo; dias.push(g[i].d); }
+    const per = (a: string, z: string) => { const x = ret.filter((_, k) => dias[k] >= a && dias[k] <= z); let eq = 1, pico = 1, dd = 0; for (const v of x) { eq *= 1 + v; pico = Math.max(pico, eq); dd = Math.min(dd, eq / pico - 1); } return { cagr: r3((Math.pow(eq, ANO / x.length) - 1) * 100), sharpe: r3(mean(x) / sd(x) * Math.sqrt(ANO)), queda: r3(dd * 100) }; };
+    return { nome, tudo: per("2001", "2099"), "2001–2012": per("2001", "2012-12-31"), "2013–2026": per("2013", "2099") };
+  }
+  const vs = (i: number) => Math.min(1, 0.15 / vol20(i)) || 0;
+  const don = (() => { const p = new Array(n).fill(0); let cur = 0; for (let i = 55; i < n; i++) { const hi = Math.max(...g.slice(i - 55, i).map((x) => x.h)), lo = Math.min(...g.slice(i - 27, i).map((x) => x.l)); if (c[i] > hi) cur = 1; else if (c[i] < lo) cur = 0; p[i] = cur; } return p; })();
+  const regras = [
+    stats(() => 1, "Segurar ouro"),
+    stats((i) => c[i] > ma(50, i) ? 1 : 0, "Média 50d"),
+    stats((i) => c[i] > ma(100, i) ? 1 : 0, "Média 100d"),
+    stats((i) => c[i] > ma(200, i) ? 1 : 0, "Média 200d"),
+    stats((i) => don[i], "Rompimento 55d (Tartarugas)"),
+    stats((i) => c[i] > c[i - 126] ? 1 : 0, "Momentum 6 meses"),
+    stats((i) => c[i] > c[i - 252] ? 1 : 0, "Momentum 12 meses"),
+    stats((i) => vs(i), "Segurar com tamanho por volatilidade (alvo 15%)"),
+    stats((i) => (c[i] > ma(200, i) ? 1 : 0) * vs(i), "Média 200d + volatilidade"),
+    stats((i) => (c[i] > c[i - 252] ? 1 : 0) * vs(i), "Momentum 12m + volatilidade"),
+  ];
+  // antecipadores: juros reais 10 anos (FRED DFII10) e dólar (DXY) de hoje vs ouro amanhã
+  const juros = await fred("DFII10"); const dxy = new Map((await yahooDesde("DX-Y.NYB", 2003)).map((x) => [x.d, x.c]));
+  const idx = new Map(g.map((x, i) => [x.d, i]));
+  function lead(serie: Map<string, number>, dif: boolean, nome: string) {
+    const ds = [...serie.keys()].filter((d) => idx.has(d)).sort(); const A: number[] = [], B: number[] = [], S1: number[] = [], S2: number[] = []; const per: any = {};
+    for (let k = 1; k < ds.length - 1; k++) {
+      const i0 = idx.get(ds[k - 1])!, i1 = idx.get(ds[k])!, i2 = idx.get(ds[k + 1])!;
+      const x = dif ? serie.get(ds[k])! - serie.get(ds[k - 1])! : Math.log(serie.get(ds[k])! / serie.get(ds[k - 1])!);
+      const gHoje = Math.log(c[i1] / c[i0]), gAmanha = Math.log(c[i2] / c[i1]);
+      S1.push(x); S2.push(gHoje); A.push(x); B.push(gAmanha);
+      const dec = ds[k].slice(0, 3) + "0s"; (per[dec] ||= { a: [], b: [] }); per[dec].a.push(x); per[dec].b.push(gAmanha);
+    }
+    return { nome, mesmo_dia: r3(corr(S1, S2)), antecipa_dia_seguinte: r3(corr(A, B)), n: A.length, por_decada: Object.fromEntries(Object.entries(per).map(([k, v]: any) => [k, r3(corr(v.a, v.b))])) };
+  }
+  const antecip = [lead(juros, true, "Juros reais EUA 10 anos (variação)"), lead(dxy, false, "Dólar (DXY)")];
+  // sazonalidade por mês (retorno mensal) e por dia da semana
+  const mes: Record<number, number[]> = {}; let ini = 0;
+  for (let i = 1; i < n; i++) if (g[i].d.slice(0, 7) !== g[i - 1].d.slice(0, 7)) { if (ini) { const m = +g[i - 1].d.slice(5, 7); (mes[m] ||= []).push((c[i - 1] / c[ini - 1] - 1) * 100); } ini = i; }
+  const sazon = Object.fromEntries(Object.entries(mes).map(([m, v]) => [m, { media: r3(mean(v)), t: r3(tstat(v)), n: v.length }]));
+  const dow: Record<number, number[]> = {}; for (let i = 1; i < n; i++) { const w = new Date(g[i].d + "T12:00:00Z").getUTCDay(); (dow[w] ||= []).push(r[i] * 100); }
+  const semana = Object.fromEntries(Object.entries(dow).map(([w, v]) => [w, { media: r3(mean(v)), t: r3(tstat(v)) }]));
+  return { periodo: [g[0].d, g[n - 1].d], regras, antecip, sazon, semana };
+}
+
 Deno.serve(async (req) => {
   const tk = await sb.from("interno").select("valor").eq("chave", "ciclo_token").maybeSingle();
   if (req.headers.get("x-ciclo-token") !== tk.data?.valor) return new Response("nao autorizado", { status: 401 });
   const { modo } = await req.json();
   try {
-    const r = modo === "funding" ? await funding() : await correl();
+    const r = modo === "funding" ? await funding() : modo === "ouro" ? await ouro() : await correl();
     return new Response(JSON.stringify(r), { headers: { "content-type": "application/json" } });
   } catch (e) { return new Response(JSON.stringify({ erro: String(e) }), { status: 500 }); }
 });

@@ -220,12 +220,49 @@ async function dvol(usaIV: boolean) {
   return res;
 }
 
+const limpa = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&#39;|&rsquo;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
+async function pagina(u: string) { const r = await fetch(u, { headers: { "User-Agent": "Mozilla/5.0" } }); return r.ok ? await r.text() : ""; }
+function linhas(html: string) {
+  const out: string[][] = [];
+  for (const tr of html.split(/<tr[\s>]/i).slice(1)) { const tds = [...tr.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => limpa(m[1])); if (tds.length >= 4) out.push(tds); }
+  return out;
+}
+async function fda() {
+  const idx = await pagina("https://www.fda.gov/drugs/development-approval-process-drugs/novel-drug-approvals-fda");
+  const links = new Map<number, string>();
+  for (const m of idx.matchAll(/href="([^"]*novel-drug-approvals-(20\d\d)[^"]*)"/gi)) { const ano = +m[2]; if (ano >= 2015 && !links.has(ano)) links.set(ano, m[1].startsWith("http") ? m[1] : "https://www.fda.gov" + m[1]); }
+  const rows: any[] = []; const anos: any = {};
+  for (const [ano, u] of [...links.entries()].sort()) {
+    const ls = linhas(await pagina(u)); anos[ano] = ls.length;
+    for (const td of ls) {
+      // colunas: nº, marca, princípio ativo, data, uso aprovado (às vezes com link de comunicado)
+      const off = /^\d+\.?$/.test(td[0]) ? 1 : 0; const marca = td[off], princ = td[off + 1], dt = td[off + 2], uso = td.slice(off + 3).join(" ");
+      const d = new Date(dt); if (isNaN(+d)) continue;
+      rows.push({ id: `${ano}|${marca}`.toUpperCase(), fonte: "CDER", ano, data: d.toISOString().slice(0, 10), marca, principio: princ, uso: uso.slice(0, 600) });
+    }
+  }
+  // CBER: terapias celulares e gênicas (data vem no texto de cada produto; aqui só nome e empresa)
+  const cber = linhas(await pagina("https://www.fda.gov/vaccines-blood-biologics/cellular-gene-therapy-products/approved-cellular-and-gene-therapy-products"));
+  // empresas: openFDA (aplicações aprovadas originais)
+  const emp = new Map<string, string>();
+  for (const q of ['submissions.submission_class_code:"TYPE 1"', 'application_number:BLA*']) {
+    for (let skip = 0; skip < 3000; skip += 1000) {
+      const r = await fetch(`https://api.fda.gov/drug/drugsfda.json?search=${encodeURIComponent(q)}&limit=1000&skip=${skip}`); if (!r.ok) break;
+      const j = await r.json(); for (const a of j.results ?? []) for (const p of a.products ?? []) emp.set(String(p.brand_name).toUpperCase(), a.sponsor_name);
+      if ((j.results ?? []).length < 1000) break;
+    }
+  }
+  for (const r of rows) r.empresa = emp.get(String(r.marca).toUpperCase()) ?? null;
+  for (let i = 0; i < rows.length; i += 200) await sb.from("pesquisa_fda").upsert(rows.slice(i, i + 200));
+  return { anos, total: rows.length, com_empresa: rows.filter((r) => r.empresa).length, cber_linhas: cber.length, cber_exemplo: cber.slice(0, 3) };
+}
+
 Deno.serve(async (req) => {
   const tk = await sb.from("interno").select("valor").eq("chave", "ciclo_token").maybeSingle();
   if (req.headers.get("x-ciclo-token") !== tk.data?.valor) return new Response("nao autorizado", { status: 401 });
   const { modo } = await req.json();
   try {
-    const r = modo === "funding" ? await funding() : modo === "ouro" ? await ouro() : modo === "dvol" ? await dvol(false) : modo === "dvol-iv" ? await dvol(true) : await correl();
+    const r = modo === "funding" ? await funding() : modo === "ouro" ? await ouro() : modo === "fda" ? await fda() : modo === "dvol" ? await dvol(false) : modo === "dvol-iv" ? await dvol(true) : await correl();
     return new Response(JSON.stringify(r), { headers: { "content-type": "application/json" } });
   } catch (e) { return new Response(JSON.stringify({ erro: String(e) }), { status: 500 }); }
 });

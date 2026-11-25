@@ -1,5 +1,8 @@
 // Pesquisas pontuais rodadas no servidor (acesso à internet e ao banco). modo: "funding" | "correl"
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import * as Alerta from "https://cdn.jsdelivr.net/gh/romesbr/btc-analogos@c352af0beae9de474a70a6b1e053fca9e8d5bba2/supabase/functions/ciclo/alerta.js";
+import Core from "https://cdn.jsdelivr.net/gh/romesbr/btc-analogos@c352af0beae9de474a70a6b1e053fca9e8d5bba2/supabase/functions/ciclo/core.js";
+import EVENTOS from "https://cdn.jsdelivr.net/gh/romesbr/btc-analogos@c352af0beae9de474a70a6b1e053fca9e8d5bba2/supabase/functions/ciclo/eventos.js";
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 const H1 = 3600e3, D1 = 864e5;
 const mean = (a: number[]) => a.reduce((s, x) => s + x, 0) / a.length;
@@ -145,12 +148,84 @@ async function ouro() {
   return { periodo: [g[0].d, g[n - 1].d], regras, antecip, sazon, semana };
 }
 
+// regressão logística por IRLS (Newton) com leve regularização; X já padronizado, com coluna de 1
+function logit(X: number[][], y: number[], lam = 1) {
+  const p = X[0].length; let w = new Array(p).fill(0);
+  for (let it = 0; it < 12; it++) {
+    const H = Array.from({ length: p }, () => new Array(p).fill(0)), g = new Array(p).fill(0);
+    for (let i = 0; i < X.length; i++) {
+      const xi = X[i]; let z = 0; for (let j = 0; j < p; j++) z += w[j] * xi[j];
+      const mu = 1 / (1 + Math.exp(-z)), s = mu * (1 - mu), e = y[i] - mu;
+      for (let j = 0; j < p; j++) { g[j] += e * xi[j]; const a = s * xi[j]; for (let k = j; k < p; k++) H[j][k] += a * xi[k]; }
+    }
+    for (let j = 0; j < p; j++) { for (let k = 0; k < j; k++) H[j][k] = H[k][j]; if (j) { H[j][j] += lam; g[j] -= lam * w[j]; } }
+    // resolve H d = g (eliminação de Gauss)
+    const A = H.map((r, j) => [...r, g[j]]);
+    for (let c = 0; c < p; c++) { let m = c; for (let r = c + 1; r < p; r++) if (Math.abs(A[r][c]) > Math.abs(A[m][c])) m = r; [A[c], A[m]] = [A[m], A[c]];
+      for (let r = 0; r < p; r++) if (r !== c) { const f = A[r][c] / A[c][c]; for (let k = c; k <= p; k++) A[r][k] -= f * A[c][k]; } }
+    const d = A.map((r, j) => r[p] / r[j]); w = w.map((x, j) => x + d[j]);
+    if (Math.max(...d.map(Math.abs)) < 1e-6) break;
+  }
+  return w;
+}
+function auc(ps: [number, number][]) { const o = [...ps].sort((a, b) => a[0] - b[0]); let pos = 0, rs = 0; o.forEach((x, j) => { if (x[1]) { pos++; rs += j + 1; } }); return (rs - pos * (pos + 1) / 2) / (pos * (o.length - pos)); }
+async function dvol() {
+  // índice de volatilidade implícita do BTC (Deribit), de hora em hora
+  const iv = new Map<number, number>(); const ini = Date.UTC(2021, 2, 24), agora = Date.now();
+  for (let s = ini; s < agora; s += 1000 * H1) {
+    const r = await fetch(`https://www.deribit.com/api/v2/public/get_volatility_index_data?currency=BTC&start_timestamp=${s}&end_timestamp=${s + 1000 * H1}&resolution=3600`);
+    const j = await r.json(); for (const d of (j.result?.data ?? [])) iv.set(+d[0], +d[4]);
+  }
+  const { data } = await sb.rpc("velas_json");
+  const bars = (data as any[]).map((r) => ({ t: +r[0], h: r[2], l: r[3], c: r[4], v: r[5] }));
+  const evMs = (Core.eventsToMs(EVENTOS) as number[]).slice().sort((a, b) => a - b);
+  const P = Alerta.preparar(bars), n = bars.length;
+  const E = new Float64Array(n).fill(NaN);
+  for (let i = 0; i + 24 < n; i++) { let hi = -Infinity, lo = Infinity; for (let k = i + 1; k <= i + 24; k++) { hi = Math.max(hi, bars[k].h); lo = Math.min(lo, bars[k].l); } E[i] = Math.max(Math.log(hi / bars[i].c), Math.log(bars[i].c / lo)); }
+  const lr = bars.map((b, i) => i ? Math.log(b.c / bars[i - 1].c) : 0);
+  const cols = Alerta.COEF.producao.cols as string[];
+  const rows: { t: number; base: number[]; extra: number[]; y: number }[] = [];
+  for (let i = 9600; i + 24 < n; i += 3) {
+    const tDec = bars[i].t + H1; const ivNow = iv.get(bars[i].t), iv24 = iv.get(bars[i].t - 24 * H1);
+    if (ivNow == null || iv24 == null) continue;
+    const hist: number[] = []; for (let k = 1; k <= 720; k += 6) { const x = iv.get(bars[i].t - k * H1); if (x != null) hist.push(x); }
+    if (hist.length < 60) continue;
+    const f = Alerta.features(P, i, evMs); if (!f) continue;
+    const win = Array.from(E.subarray(i - 24 - 719, i - 23)).sort((a, b) => a - b); const med = (win[359] + win[360]) / 2;
+    const rv720 = sd(lr.slice(i - 719, i + 1)) * Math.sqrt(8760) * 100, rv24 = sd(lr.slice(i - 23, i + 1)) * Math.sqrt(8760) * 100;
+    const extra = [Math.log(ivNow / rv720), Math.log(ivNow / rv24), Math.log(ivNow / iv24), (ivNow - mean(hist)) / sd(hist)].map((x) => Math.max(-5, Math.min(5, x)));
+    rows.push({ t: tDec, base: cols.map((k) => f[k]), extra, y: E[i] >= 1.75 * med ? 1 : 0 });
+  }
+  const res: any = { n: rows.length, desde: new Date(rows[0].t).toISOString().slice(0, 10) };
+  for (const [nome, usa] of [["sem volatilidade implícita", false], ["com volatilidade implícita", true]] as [string, boolean][]) {
+    const pts: [number, number][] = [];
+    for (const ano of [2023, 2024, 2025, 2026]) {
+      const t0 = Date.UTC(ano, 0, 1), t1 = Date.UTC(ano + 1, 0, 1);
+      const tr = rows.filter((r) => r.t < t0 - 24 * H1), te = rows.filter((r) => r.t >= t0 && r.t < t1); if (!te.length) continue;
+      const feat = (r: any) => usa ? [...r.base, ...r.extra] : r.base;
+      const Xtr = tr.map(feat), p = Xtr[0].length, mu = new Array(p).fill(0), sg = new Array(p).fill(0);
+      for (const x of Xtr) x.forEach((v: number, j: number) => mu[j] += v / Xtr.length);
+      for (const x of Xtr) x.forEach((v: number, j: number) => sg[j] += (v - mu[j]) ** 2 / Xtr.length);
+      const z = (x: number[]) => [1, ...x.map((v, j) => (v - mu[j]) / (Math.sqrt(sg[j]) || 1))];
+      const w = logit(Xtr.map(z), tr.map((r) => r.y));
+      for (const r of te) { const xx = z(feat(r)); let s = 0; xx.forEach((v, j) => s += v * w[j]); pts.push([1 / (1 + Math.exp(-s)), r.y]); }
+    }
+    const o = [...pts].sort((a, b) => a[0] - b[0]), dec: number[] = [];
+    for (let d = 0; d < 10; d++) { const sl = o.slice(Math.floor(d * o.length / 10), Math.floor((d + 1) * o.length / 10)); dec.push(r3(sl.reduce((s, x) => s + x[1], 0) / sl.length)); }
+    const top5 = o.slice(Math.floor(o.length * 0.95)); 
+    res[nome] = { auc: r3(auc(pts)), base: r3(mean(pts.map((x) => x[1]))), decis: dec, top5pct: r3(mean(top5.map((x) => x[1]))) };
+  }
+  // relação simples: quintis do "IV acima do realizado" vs chance de movimento grande
+  const q = [...rows].sort((a, b) => a.extra[0] - b.extra[0]); res.quintis_iv_sobre_realizado = [0, 1, 2, 3, 4].map((k) => r3(mean(q.slice(Math.floor(k * q.length / 5), Math.floor((k + 1) * q.length / 5)).map((r) => r.y))));
+  return res;
+}
+
 Deno.serve(async (req) => {
   const tk = await sb.from("interno").select("valor").eq("chave", "ciclo_token").maybeSingle();
   if (req.headers.get("x-ciclo-token") !== tk.data?.valor) return new Response("nao autorizado", { status: 401 });
   const { modo } = await req.json();
   try {
-    const r = modo === "funding" ? await funding() : modo === "ouro" ? await ouro() : await correl();
+    const r = modo === "funding" ? await funding() : modo === "ouro" ? await ouro() : modo === "dvol" ? await dvol() : await correl();
     return new Response(JSON.stringify(r), { headers: { "content-type": "application/json" } });
   } catch (e) { return new Response(JSON.stringify({ erro: String(e) }), { status: 500 }); }
 });

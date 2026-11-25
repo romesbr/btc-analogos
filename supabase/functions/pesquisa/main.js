@@ -414,12 +414,189 @@ async function fda() {
   for (let i = 0; i < rows.length; i += 200) await sb.from("pesquisa_fda").upsert(rows.slice(i, i + 200));
   return { anos, total: rows.length, com_empresa: rows.filter((r) => r.empresa).length, cber_linhas: cber.length, cber_exemplo: cber.slice(0, 3) };
 }
+const MAPA = [
+  [/^ABBVIE/, "ABBV"],
+  [/^ACADIA/, "ACAD"],
+  [/^ADC THERA/, "ADCT"],
+  [/^AGIOS/, "AGIO"],
+  [/^AKEBIA/, "AKBA"],
+  [/^ALCON/, "ALC"],
+  [/^ALEXION/, "AZN"],
+  [/^ALNYLAM/, "ALNY"],
+  [/^ALTOR/, "IBRX"],
+  [/^AMGEN/, "AMGN"],
+  [/^AMICUS/, "FOLD"],
+  [/^AMYLYX/, "AMLX"],
+  [/^APELLIS/, "APLS"],
+  [/^ARGENX/, "ARGX"],
+  [/^ARROWHEAD/, "ARWR"],
+  [/^ASCENDIS/, "ASND"],
+  [/^ASTELLAS/, "4503.T"],
+  [/^ASTRAZENECA/, "AZN"],
+  [/^AURINIA/, "AUPH"],
+  [/^BAUSCH AND LOMB/, "BLCO"],
+  [/^BAYER/, "BAYRY"],
+  [/^BEIGENE|^BEONE/, "ONC"],
+  [/^BIOGEN/, "BIIB"],
+  [/^BIOMARIN/, "BMRN"],
+  [/^BRIDGEBIO/, "BBIO"],
+  [/^BRISTOL/, "BMY"],
+  [/^CATALYST/, "CPRX"],
+  [/^CELCUITY/, "CELC"],
+  [/^CERVEAU LANTHEUS|^PROGENICS/, "LNTH"],
+  [/^COHERUS/, "CHRS"],
+  [/^CRINETICS/, "CRNX"],
+  [/^CSL/, "CSL.AX"],
+  [/^CYTOKINETICS/, "CYTK"],
+  [/^DAIICHI/, "4568.T"],
+  [/^DAY ONE/, "DAWN"],
+  [/^DENALI/, "DNLI"],
+  [/^EISAI/, "4523.T"],
+  [/^ELI LILLY|^LOXO/, "LLY"],
+  [/^EMD SERONO/, "MKKGY"],
+  [/^ENTASIS/, "INVA"],
+  [/^GALDERMA/, "GALD.SW"],
+  [/^GE HLTHCARE/, "GEHC"],
+  [/^GENENTECH/, "RHHBY"],
+  [/^GENMAB/, "GMAB"],
+  [/^GENZYME|^SANOFI/, "SNY"],
+  [/^GERON/, "GERN"],
+  [/^GILEAD/, "GILD"],
+  [/^GLAXOSMITHKLINE/, "GSK"],
+  [/^IDORSIA/, "IDIA.SW"],
+  [/^IMMUNOCORE/, "IMCR"],
+  [/^INCYTE/, "INCY"],
+  [/^INSMED/, "INSM"],
+  [/^IONIS/, "IONS"],
+  [/^IPSEN/, "IPN.PA"],
+  [/^JANSSEN/, "JNJ"],
+  [/^JAZZ/, "JAZZ"],
+  [/^KALVISTA/, "KALV"],
+  [/^KURA/, "KURA"],
+  [/^LENZ/, "LENZ"],
+  [/^LEXICON/, "LXRX"],
+  [/^MADRIGAL/, "MDGL"],
+  [/^MEDEXUS/, "MDP.TO"],
+  [/^MEDIWOUND/, "MDWD"],
+  [/^MERCK SHARP|^MSD/, "MRK"],
+  [/^MERUS/, "MRUS"],
+  [/^MILESTONE/, "MIST"],
+  [/^MIRUM/, "MIRM"],
+  [/^NEUROCRINE/, "NBIX"],
+  [/^NOVARTIS/, "NVS"],
+  [/^NOVO/, "NVO"],
+  [/^NUVALENT/, "NUVL"],
+  [/^NUVATION/, "NUVB"],
+  [/^OMEROS/, "OMER"],
+  [/^ORGANON/, "OGN"],
+  [/^OTSUKA/, "4578.T"],
+  [/^OUTLOOK/, "OTLK"],
+  [/^PFIZER/, "PFE"],
+  [/^PHARMING/, "PHAR"],
+  [/^PTC THERAP/, "PTCT"],
+  [/^RECORDATI/, "REC.MI"],
+  [/^R[E]?NGENERON|^REGENERON/, "REGN"],
+  [/^REVOLUTION MED/, "RVMD"],
+  [/^RIGEL/, "RIGL"],
+  [/^SAREPTA/, "SRPT"],
+  [/^SCHOLAR ROCK/, "SRRK"],
+  [/^SHIONOGI/, "4507.T"],
+  [/^SOBI/, "SOBI.ST"],
+  [/^SUPERNUS/, "SUPN"],
+  [/^SYNDAX/, "SNDX"],
+  [/^TAKEDA/, "TAK"],
+  [/^TARSUS/, "TARS"],
+  [/^TELIX/, "TLX"],
+  [/^TG THERAP/, "TGTX"],
+  [/^TRAVERE/, "TVTX"],
+  [/^UCB/, "UCB.BR"],
+  [/^VANDA/, "VNDA"],
+  [/^VERA THERAP/, "VERA"],
+  [/^VERTEX/, "VRTX"],
+  [/^VIRIDIAN/, "VRDN"],
+  [/^X4 PHARMS/, "XFOR"],
+  [/^ZEALAND/, "ZEAL.CO"],
+  [/^ZEVRA/, "ZVRA"]
+];
+const REVOL = /* @__PURE__ */ new Set(["ADUHELM", "WELIREG", "VOXZOGO", "PYRUKYND", "CAMZYOS", "LEQEMBI", "DAYBUE", "JOENJA", "QALSODY", "SOHONOS", "VEOPOZ", "REZDIFFRA", "KISUNLA", "XOLREMDI", "MIPLYFFA", "CRENESSITY", "KYGEVVI", "HEPCLUDEX", "ZANVASTRO", "HIBSAGO"]);
+const EXTRA = [
+  ["Wegovy (obesidade)", "2021-06-04", "NVO"],
+  ["Zepbound (obesidade)", "2023-11-08", "LLY"],
+  ["Casgevy (anemia falciforme)", "2023-12-08", "CRSP"],
+  ["Lyfgenia (anemia falciforme)", "2023-12-08", "BLUE"],
+  ["Elevidys (Duchenne)", "2023-06-22", "SRPT"],
+  ["Hemgenix (hemofilia B)", "2022-11-22", "QURE"],
+  ["Roctavian (hemofilia A)", "2023-06-29", "BMRN"],
+  ["Zynteglo (beta-talassemia)", "2022-08-17", "BLUE"],
+  ["Skysona (adrenoleucodistrofia)", "2022-09-16", "BLUE"],
+  ["Beqvez (hemofilia B)", "2024-04-25", "PFE"],
+  ["Kebilidi (defici\xEAncia de AADC)", "2024-11-13", "PTCT"]
+];
+const GRANDES = /* @__PURE__ */ new Set(["ABBV", "AMGN", "AZN", "BAYRY", "BMY", "GILD", "GSK", "JNJ", "LLY", "MRK", "NVS", "NVO", "PFE", "RHHBY", "SNY", "TAK", "4503.T", "4568.T", "4523.T", "4578.T", "4507.T", "MKKGY", "GEHC", "ALC", "CSL.AX", "REGN", "VRTX", "BIIB"]);
+async function eventos() {
+  const { data } = await sb.from("pesquisa_fda").select("marca,data,empresa");
+  const evs = [];
+  for (const r of data ?? []) {
+    const e = String(r.empresa ?? "").toUpperCase();
+    const m = MAPA.find(([re]) => re.test(e));
+    if (!m) continue;
+    evs.push({ nome: r.marca, data: r.data, tk: m[1], grupo: REVOL.has(String(r.marca).toUpperCase()) ? "revolucion\xE1rio" : "outros" });
+  }
+  for (const [n, d, tk] of EXTRA) evs.push({ nome: n, data: d, tk, grupo: "revolucion\xE1rio" });
+  const cache = /* @__PURE__ */ new Map();
+  const serie = async (tk) => {
+    if (!cache.has(tk)) {
+      try {
+        cache.set(tk, await yahooDesde(tk, 2020));
+      } catch (_e) {
+        cache.set(tk, []);
+      }
+    }
+    return cache.get(tk);
+  };
+  const xbi = await serie("XBI");
+  const xm = new Map(xbi.map((x) => [x.d, x.c]));
+  const J = [["\u221260 a \u221221", -60, -21], ["\u221220 a \u22121", -20, -1], ["dia 0 e +1", 0, 1], ["+2 a +20", 2, 20], ["+21 a +60", 21, 60]];
+  const lin = [];
+  for (const ev of evs) {
+    const s = await serie(ev.tk);
+    if (s.length < 100) continue;
+    const i0 = s.findIndex((x) => x.d >= ev.data);
+    if (i0 < 61 || i0 + 20 >= s.length) continue;
+    const ar = {};
+    for (const [nm, a, b] of J) {
+      const ia = i0 + a - 1, ib = i0 + b;
+      if (ib >= s.length) {
+        ar[nm] = null;
+        continue;
+      }
+      const xa = xm.get(s[ia].d), xb = xm.get(s[ib].d);
+      if (!xa || !xb) {
+        ar[nm] = null;
+        continue;
+      }
+      ar[nm] = (Math.log(s[ib].c / s[ia].c) - Math.log(xb / xa)) * 100;
+    }
+    lin.push({ ...ev, porte: GRANDES.has(ev.tk) ? "grande" : "pequena/m\xE9dia", ar });
+  }
+  const resumo = {};
+  for (const g of ["revolucion\xE1rio", "outros"]) for (const p of ["grande", "pequena/m\xE9dia", "todas"]) {
+    const L = lin.filter((x) => x.grupo === g && (p === "todas" || x.porte === p));
+    if (!L.length) continue;
+    resumo[`${g} \xB7 ${p}`] = { n: L.length, ...Object.fromEntries(J.map(([nm]) => {
+      const v = L.map((x) => x.ar[nm]).filter((x) => x != null);
+      return [nm, v.length > 1 ? `${r3(mean(v))}% (t ${r3(tstat(v))}, n ${v.length}, sobe ${Math.round(v.filter((x) => x > 0).length / v.length * 100)}%)` : "\u2014"];
+    })) };
+  }
+  const revol = lin.filter((x) => x.grupo === "revolucion\xE1rio").map((x) => `${x.data} ${x.nome} ${x.tk}: antes ${x.ar["\u221220 a \u22121"]?.toFixed(1)}% | dia ${x.ar["dia 0 e +1"]?.toFixed(1)}% | depois ${x.ar["+2 a +20"]?.toFixed(1)}% | +21/+60 ${x.ar["+21 a +60"] == null ? "\u2014" : x.ar["+21 a +60"].toFixed(1)}%`);
+  return { eventos_com_preco: lin.length, sem_ticker_ou_dados: evs.length - lin.length, resumo, revolucionarios: revol };
+}
 Deno.serve(async (req) => {
   const tk = await sb.from("interno").select("valor").eq("chave", "ciclo_token").maybeSingle();
   if (req.headers.get("x-ciclo-token") !== tk.data?.valor) return new Response("nao autorizado", { status: 401 });
   const { modo } = await req.json();
   try {
-    const r = modo === "funding" ? await funding() : modo === "ouro" ? await ouro() : modo === "fda" ? await fda() : modo === "dvol" ? await dvol(false) : modo === "dvol-iv" ? await dvol(true) : await correl();
+    const r = modo === "funding" ? await funding() : modo === "ouro" ? await ouro() : modo === "fda" ? await fda() : modo === "eventos" ? await eventos() : modo === "dvol" ? await dvol(false) : modo === "dvol-iv" ? await dvol(true) : await correl();
     return new Response(JSON.stringify(r), { headers: { "content-type": "application/json" } });
   } catch (e) {
     return new Response(JSON.stringify({ erro: String(e) }), { status: 500 });

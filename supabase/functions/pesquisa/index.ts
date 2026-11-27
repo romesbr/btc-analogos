@@ -313,12 +313,53 @@ async function eventos() {
   return { eventos_com_preco: lin.length, sem_ticker_ou_dados: evs.length - lin.length, resumo, revolucionarios: revol };
 }
 
+async function nyopen() {
+  const { data } = await sb.rpc("velas_json");
+  const bars = (data as any[]).map((r) => ({ t: +r[0], h: r[2], l: r[3], c: r[4], v: r[5] }));
+  const evMs = (Core.eventsToMs(EVENTOS) as number[]).slice().sort((a, b) => a - b);
+  const P = Alerta.preparar(bars), n = bars.length;
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, weekday: "short", hour: "numeric" });
+  const ny = (ms: number) => { const p: any = {}; for (const x of fmt.formatToParts(new Date(ms))) p[x.type] = x.value; return { wd: p.weekday, h: (+p.hour) % 24 }; };
+  // alvo: maior excursão nas próximas 2 velas de 1h >= 2x a mediana das excursões de 2h dos 30 dias anteriores
+  const E2 = new Float64Array(n).fill(NaN), R2 = new Float64Array(n).fill(NaN);
+  for (let i = 0; i + 2 < n; i++) { const hi = Math.max(bars[i + 1].h, bars[i + 2].h), lo = Math.min(bars[i + 1].l, bars[i + 2].l); E2[i] = Math.max(Math.log(hi / bars[i].c), Math.log(bars[i].c / lo)); R2[i] = Math.log(bars[i + 2].c / bars[i].c); }
+  const t0 = Date.UTC(2021, 0, 1), tTeste = Date.UTC(2023, 0, 1);
+  const rows: any[] = []; let ei = 0;
+  for (let i = 9600; i + 2 < n; i++) {
+    if (bars[i].t < t0) continue;
+    const win: number[] = []; for (let k = i - 2 - 719; k <= i - 2; k += 5) win.push(E2[k]); win.sort((a, b) => a - b); const med = win[Math.floor(win.length / 2)];
+    const f = Alerta.features(P, i, evMs); if (!f) continue;
+    const dec = bars[i].t + H1, a = ny(dec), b = ny(dec + H1);
+    const util = !["Sat", "Sun"].includes(a.wd);
+    const abertura = util && (a.h === 9 || b.h === 9) ? 1 : 0; // as próximas 2h incluem 9h–10h de NY (abertura às 9h30)
+    while (ei < evMs.length && evMs[ei] <= dec) ei++;
+    const macro2 = ei < evMs.length && evMs[ei] - dec <= 2 * H1 ? 1 : 0;
+    rows.push({ t: dec, hNY: a.h, util, abertura, x: [f.rv24_720, f.rv168_720, f.comp8, f.comp24, f.vol4, f.vol24, f.fds, macro2], y: E2[i] >= 2 * med ? 1 : 0, r: R2[i] * 100 });
+  }
+  const fit = (cols: (r: any) => number[]) => {
+    const tr = rows.filter((r) => r.t < tTeste - 2 * H1), te = rows.filter((r) => r.t >= tTeste);
+    const X = tr.map(cols), p = X[0].length, mu = new Array(p).fill(0), sg = new Array(p).fill(0);
+    for (const x of X) x.forEach((v, j) => mu[j] += v / X.length); for (const x of X) x.forEach((v, j) => sg[j] += (v - mu[j]) ** 2 / X.length);
+    const z = (x: number[]) => [1, ...x.map((v, j) => (v - mu[j]) / (Math.sqrt(sg[j]) || 1))];
+    const w = logit(X.map(z), tr.map((r) => r.y));
+    const pts: [number, number][] = te.map((r) => { const xx = z(cols(r)); let s = 0; xx.forEach((v, j) => s += v * w[j]); return [1 / (1 + Math.exp(-s)), r.y]; });
+    const o = [...pts].sort((a, b) => a[0] - b[0]); const top = o.slice(Math.floor(o.length * 0.9)), top2 = o.slice(Math.floor(o.length * 0.98));
+    return { auc: r3(auc(pts)), base: r3(mean(pts.map((x) => x[1]))), top10: r3(mean(top.map((x) => x[1]))), top2: r3(mean(top2.map((x) => x[1]))) };
+  };
+  const semNY = fit((r) => r.x), comNY = fit((r) => [...r.x, r.abertura]);
+  const te = rows.filter((r) => r.t >= tTeste);
+  const porHora: any = {}; for (let h = 0; h < 24; h++) { const g = te.filter((r) => r.hNY === h && r.util); if (g.length) porHora[h] = r3(mean(g.map((r) => r.y))); }
+  const ab = te.filter((r) => r.abertura === 1 && r.hNY === 8), resto = te.filter((r) => !r.abertura);
+  const dir = { n: ab.length, ret_medio_2h: r3(mean(ab.map((r) => r.r))), t: r3(tstat(ab.map((r) => r.r))), cai_pct: r3(ab.filter((r) => r.r < 0).length / ab.length) };
+  return { linhas: rows.length, teste_desde: "2023-01-01", sem_abertura_NY: semNY, com_abertura_NY: comNY, chance_mov_brusco_2h_por_hora_NY_dias_uteis: porHora, base_fora_abertura: r3(mean(resto.map((r) => r.y))), direcao_na_abertura_8h_10h: dir };
+}
+
 Deno.serve(async (req) => {
   const tk = await sb.from("interno").select("valor").eq("chave", "ciclo_token").maybeSingle();
   if (req.headers.get("x-ciclo-token") !== tk.data?.valor) return new Response("nao autorizado", { status: 401 });
   const { modo } = await req.json();
   try {
-    const r = modo === "funding" ? await funding() : modo === "ouro" ? await ouro() : modo === "fda" ? await fda() : modo === "eventos" ? await eventos() : modo === "dvol" ? await dvol(false) : modo === "dvol-iv" ? await dvol(true) : await correl();
+    const r = modo === "funding" ? await funding() : modo === "ouro" ? await ouro() : modo === "fda" ? await fda() : modo === "eventos" ? await eventos() : modo === "nyopen" ? await nyopen() : modo === "dvol" ? await dvol(false) : modo === "dvol-iv" ? await dvol(true) : await correl();
     return new Response(JSON.stringify(r), { headers: { "content-type": "application/json" } });
   } catch (e) { return new Response(JSON.stringify({ erro: String(e) }), { status: 500 }); }
 });

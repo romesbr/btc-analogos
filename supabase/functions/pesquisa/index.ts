@@ -339,7 +339,8 @@ async function nyopen() {
     const abertura = util && (a.h === 9 || b.h === 9) ? 1 : 0; // as próximas 2h incluem 9h–10h de NY (abertura às 9h30)
     while (ei < evMs.length && evMs[ei] <= dec) ei++;
     const macro2 = ei < evMs.length && evMs[ei] - dec <= 2 * H1 ? 1 : 0;
-    rows.push({ t: dec, hNY: a.h, util, abertura, x: [f.rv24_720, f.rv168_720, f.comp8, f.comp24, f.vol4, f.vol24, f.fds, macro2], y: E2[i] >= 2 * med ? 1 : 0, r: R2[i] * 100 });
+    const pos = util && (a.h === 10 || a.h === 11) ? 1 : 0; // logo depois da abertura (10h–12h de NY)
+    rows.push({ t: dec, hNY: a.h, util, abertura, pos, x: [f.rv24_720, f.rv168_720, f.comp8, f.comp24, f.vol4, f.vol24, f.fds, macro2], y: E2[i] >= 2 * med ? 1 : 0, r: R2[i] * 100 });
   }
   const fit = (cols: (r: any) => number[]) => {
     const tr = rows.filter((r) => r.t < tTeste - 2 * H1), te = rows.filter((r) => r.t >= tTeste);
@@ -349,14 +350,23 @@ async function nyopen() {
     const w = logit(X.map(z), tr.map((r) => r.y));
     const pts: [number, number][] = te.map((r) => { const xx = z(cols(r)); let s = 0; xx.forEach((v, j) => s += v * w[j]); return [1 / (1 + Math.exp(-s)), r.y]; });
     const o = [...pts].sort((a, b) => a[0] - b[0]); const top = o.slice(Math.floor(o.length * 0.9)), top2 = o.slice(Math.floor(o.length * 0.98));
-    return { auc: r3(auc(pts)), base: r3(mean(pts.map((x) => x[1]))), top10: r3(mean(top.map((x) => x[1]))), top2: r3(mean(top2.map((x) => x[1]))) };
+    const niveis: any = {};
+    for (const [nm, a, b] of [["BAIXO", 0, 0.1], ["NORMAL", 0.1, 0.25], ["ALTO", 0.25, 0.45], ["MUITO ALTO", 0.45, 1]] as [string, number, number][]) { const s = pts.filter((x) => x[0] >= a && x[0] < b); niveis[nm] = { tempo: r3(s.length / pts.length), acerto: r3(mean(s.map((x) => x[1]))) }; }
+    return { auc: r3(auc(pts)), base: r3(mean(pts.map((x) => x[1]))), top10: r3(mean(top.map((x) => x[1]))), top2: r3(mean(top2.map((x) => x[1]))), niveis };
   };
-  const semNY = fit((r) => r.x), comNY = fit((r) => [...r.x, r.abertura]);
+  const final = (cols: (r: any) => number[]) => {
+    const X = rows.map(cols), p = X[0].length, mu = new Array(p).fill(0), sg = new Array(p).fill(0);
+    for (const x of X) x.forEach((v, j) => mu[j] += v / X.length); for (const x of X) x.forEach((v, j) => sg[j] += (v - mu[j]) ** 2 / X.length);
+    const sd2 = sg.map(Math.sqrt); const w = logit(X.map((x) => [1, ...x.map((v, j) => (v - mu[j]) / (sd2[j] || 1))]), rows.map((r) => r.y));
+    return { w, mu, sd: sd2, cols: ["rv24_720", "rv168_720", "comp8", "comp24", "vol4", "vol24", "fds", "macro2", "abertura", "pos_abertura"] };
+  };
+  const semNY = fit((r) => r.x), comNY = fit((r) => [...r.x, r.abertura, r.pos]);
+  const modelo = final((r) => [...r.x, r.abertura, r.pos]);
   const te = rows.filter((r) => r.t >= tTeste);
   const porHora: any = {}; for (let h = 0; h < 24; h++) { const g = te.filter((r) => r.hNY === h && r.util); if (g.length) porHora[h] = r3(mean(g.map((r) => r.y))); }
   const ab = te.filter((r) => r.abertura === 1 && r.hNY === 8), resto = te.filter((r) => !r.abertura);
   const dir = { n: ab.length, ret_medio_2h: r3(mean(ab.map((r) => r.r))), t: r3(tstat(ab.map((r) => r.r))), cai_pct: r3(ab.filter((r) => r.r < 0).length / ab.length) };
-  return { linhas: rows.length, teste_desde: "2023-01-01", sem_abertura_NY: semNY, com_abertura_NY: comNY, chance_mov_brusco_2h_por_hora_NY_dias_uteis: porHora, base_fora_abertura: r3(mean(resto.map((r) => r.y))), direcao_na_abertura_8h_10h: dir };
+  return { modelo, linhas: rows.length, teste_desde: "2023-01-01", sem_abertura_NY: semNY, com_abertura_NY: comNY, chance_mov_brusco_2h_por_hora_NY_dias_uteis: porHora, base_fora_abertura: r3(mean(resto.map((r) => r.y))), direcao_na_abertura_8h_10h: dir };
 }
 
 Deno.serve(async (req) => {

@@ -2,6 +2,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import Core from "./core.js";
 import EVENTOS from "./eventos.js";
 import * as Alerta from "./alerta.js";
+import * as A2 from "./alerta2h.js";
 const H1 = 36e5, HORIZONS = [1, 4], BUILD_H = [1, 4, 48], START_MS = 15679008e5;
 const SOURCES = [
   { id: "fut", nome: "Binance Futuros \xB7 BTCUSDT perp\xE9tuo", base: "https://fapi.binance.com/fapi/v1", funding: true, oi: true, max: 1500 },
@@ -230,6 +231,17 @@ Deno.serve(async (req) => {
             await must(sb.from("alertas").update({ excursao: ex, sentido: up >= dn ? "ALTA" : "BAIXA", grande: ex >= a.limiar }).eq("dec_ts", a.dec_ts));
           }
           estado.alerta = { decTs, prob: pa, nivel: nv, tipica: tip, limiar: 1.75 * tip };
+          const f2 = A2.features(AP, ia, evOrd), p2 = A2.prob(f2), tip2 = A2.tipica2h(bars, ia) * 100, nv2 = A2.nivel(p2);
+          await must(sb.from("alertas2h").upsert({ dec_ts: decTs, prob: p2, nivel: nv2, preco: cl, limiar: 2 * tip2, features: f2 }));
+          const pend2 = await must(sb.from("alertas2h").select("dec_ts,limiar").is("excursao", null).lte("dec_ts", decTs - 2 * H1).limit(200));
+          for (const a of pend2) {
+            const k = pos.get(Number(a.dec_ts));
+            if (k == null || k + 2 >= bars.length) continue;
+            const hi = Math.max(bars[k + 1].h, bars[k + 2].h), lo = Math.min(bars[k + 1].l, bars[k + 2].l);
+            const up = Math.log(hi / bars[k].c) * 100, dn = Math.log(bars[k].c / lo) * 100, ex = Math.max(up, dn);
+            await must(sb.from("alertas2h").update({ excursao: ex, sentido: up >= dn ? "ALTA" : "BAIXA", grande: ex >= a.limiar }).eq("dec_ts", a.dec_ts));
+          }
+          estado.alerta2h = { decTs, prob: p2, nivel: nv2, limiar: 2 * tip2, abertura: !!f2.abertura || !!f2.pos_abertura };
           if (nv === "MUITO ALTO" || nv === "ALTO") log(`Alerta de movimento: ${nv} (${(pa * 100).toFixed(0)}%)`);
         }
       } catch (e) {

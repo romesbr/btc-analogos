@@ -95,11 +95,15 @@
   </section>
 
   <section class="card">
-    <h2>4 · Indicador de grande movimento (próximas 24h, sem direção)</h2>
+    <h2>4 · Indicadores de movimento (sem direção) · próximas 24h</h2>
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="big" id="al-nivel">—</div><div id="al-prob" class="mut"></div></div>
     <div style="height:8px;border-radius:4px;background:var(--line);margin:8px 0;overflow:hidden"><div id="al-bar" style="height:100%;width:0;background:var(--acc)"></div></div>
     <div class="mut" id="al-meta"></div>
     <div class="tw" style="margin-top:8px"><table><thead><tr><th>Nível</th><th>Janelas de 24h conferidas</th><th>Viraram grande</th><th>Teste 2023–26</th></tr></thead><tbody id="al-placar"></tbody></table></div>
+    <h2 style="margin-top:14px">Tranco nas próximas 2 horas (sem direção)</h2>
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="big" id="a2-nivel">—</div><div id="a2-prob" class="mut"></div></div>
+    <div class="mut" id="a2-meta"></div>
+    <div class="tw" style="margin-top:8px"><table><thead><tr><th>Nível</th><th>Janelas de 2h conferidas</th><th>Viraram tranco</th><th>Teste 2023–26</th></tr></thead><tbody id="a2-placar"></tbody></table></div>
     <details style="margin-top:8px"><summary>Últimas leituras, hora a hora</summary>
       <div class="tw" style="margin-top:6px"><table><thead><tr><th>Hora</th><th>Nível</th><th>Chance</th><th>"Grande" seria</th><th>Aconteceu</th></tr></thead><tbody id="al-hist"></tbody></table></div>
     </details>
@@ -144,16 +148,17 @@ const num = x => x == null ? x : Number(x);
 function mapSug(s) { return { id: s.id, decTs: num(s.dec_ts), criada: num(s.criada), horizonte: s.horizonte, lado: s.lado, entrada: s.entrada, stop: s.stop, alvo: s.alvo,
   expira: num(s.expira), hipotese: s.hipotese, ativo: s.ativo, tipo: s.tipo, prev: s.prev, concordancia: s.concordancia, status: s.status, saida: s.saida, saidaT: num(s.saida_t), motivo: s.motivo, bruto: s.bruto, taxas: s.taxas, funding: s.funding, liquido: s.liquido }; }
 async function loadState() {
-  const [e, s, c, a, h, l, al] = await Promise.all([sb.from("estado").select("dados").eq("id", 1).maybeSingle(), sb.from("sugestoes").select("*").order("criada", { ascending: true }),
+  const [e, s, c, a, h, l, al, a2] = await Promise.all([sb.from("estado").select("dados").eq("id", 1).maybeSingle(), sb.from("sugestoes").select("*").order("criada", { ascending: true }),
     sb.from("config").select("dados").eq("id", 1).maybeSingle(), sb.from("avaliacoes").select("dec_ts").eq("h", 1),
     sb.from("hipoteses").select("*").order("ordem"), sb.from("estado_lab").select("dados").eq("id", 1).maybeSingle(),
-    sb.from("alertas").select("dec_ts,prob,nivel,limiar,tipica,excursao,sentido,grande").order("dec_ts", { ascending: false }).limit(2000)]);
+    sb.from("alertas").select("dec_ts,prob,nivel,limiar,tipica,excursao,sentido,grande").order("dec_ts", { ascending: false }).limit(2000),
+    sb.from("alertas2h").select("dec_ts,prob,nivel,limiar,excursao,sentido,grande").order("dec_ts", { ascending: false }).limit(2000)]);
   if (e.error || s.error || c.error) throw new Error((e.error || s.error || c.error).message);
   if (!e.data && !c.data) throw new Error("sem permissão");
   const d = (e.data && e.data.dados) || {};
   return { status: d.status || "aguardando", fonte: d.fonte, fonteId: d.fonteId, ultimoCiclo: d.ultimoCiclo || 0, preco: d.preco, horasHistorico: d.horasHistorico || 0,
     proximaAvaliacao: d.proximaAvaliacao, cfg: c.data ? c.data.dados : {}, estado: d.avaliacao || null, sugestoes: (s.data || []).map(mapSug),
-    horasAvaliadas: (a.data || []).length, logs: d.logs || [], swing: d.swing || null, hipoteses: h.data || [], lab: (l.data && l.data.dados) || {}, alerta: d.alerta || null, alertas: al.data || [] };
+    horasAvaliadas: (a.data || []).length, logs: d.logs || [], swing: d.swing || null, hipoteses: h.data || [], lab: (l.data && l.data.dados) || {}, alerta: d.alerta || null, alertas: al.data || [], alerta2h: d.alerta2h || null, alertas2h: a2.data || [] };
 }
 
 // ---------- gráfico ----------
@@ -388,6 +393,23 @@ function renderCarteira() {
   }
 }
 const AL_HIST = { "BAIXO": [47, 13], "NORMAL": [42, 20], "ALTO": [8, 39], "MUITO ALTO": [3, 62] }; // teste fora da amostra: modelo treinado até 2022, aplicado em 2023–26 na Binance
+const A2_HIST = { "BAIXO": [44, 7], "NORMAL": [36, 17], "ALTO": [14, 34], "MUITO ALTO": [6, 62] }; // teste fora da amostra 2023–26
+function renderAlerta2h() {
+  const a = S.alerta2h, cor = { "BAIXO": "var(--mut)", "NORMAL": "var(--fg)", "ALTO": "var(--warn)", "MUITO ALTO": "var(--down)" };
+  if (!a) { $("a2-nivel").textContent = "—"; $("a2-meta").textContent = "Aguardando a primeira leitura (sai no fechamento de cada hora)."; }
+  else {
+    $("a2-nivel").textContent = a.nivel; $("a2-nivel").style.color = cor[a.nivel];
+    $("a2-prob").textContent = `${fnum(a.prob * 100, 0)}% de chance (normal ≈ 17%)`;
+    $("a2-meta").textContent = `Leitura das ${fdt(a.decTs)} · "tranco" = BTC se afastar ${fnum(a.limiar, 1)}% do preço (para qualquer lado) nas 2 horas seguintes.` + (a.abertura ? " Janela da abertura de Nova York: hipóteses só-ao-vivo não abrem operação das 8h30 às 10h30 de NY." : "") + " Mais provável das 10h30 às 14h (Brasília) nos dias úteis.";
+  }
+  const tb = $("a2-placar"); tb.replaceChildren();
+  for (const nv of ["BAIXO", "NORMAL", "ALTO", "MUITO ALTO"]) {
+    const ok = []; let ult = -Infinity;
+    for (const x of [...S.alertas2h].filter(x => x.nivel === nv && x.grande != null).sort((p, q) => p.dec_ts - q.dec_ts)) if (x.dec_ts - ult >= 2 * 3600e3) { ok.push(x); ult = x.dec_ts; }
+    const g = ok.filter(x => x.grande).length, tr = tb.insertRow();
+    cell(tr, nv); cell(tr, String(ok.length)); cell(tr, ok.length ? fnum(g / ok.length * 100, 0) + "%" : "—"); cell(tr, `${A2_HIST[nv][1]}% (${A2_HIST[nv][0]}% do tempo)`, "mut");
+  }
+}
 function renderAlerta() {
   const a = S.alerta, cor = { "BAIXO": "var(--mut)", "NORMAL": "var(--fg)", "ALTO": "var(--warn)", "MUITO ALTO": "var(--down)" };
   if (!a) { $("al-nivel").textContent = "—"; $("al-meta").textContent = "Aguardando a primeira leitura (sai no fechamento de cada hora)."; }
@@ -423,7 +445,7 @@ function renderCfg() {
 async function refresh() {
   try {
     S = await loadState();
-    calcCarteira(); renderHeader(); renderEstado(); renderTable(); renderCarteira(); renderAlerta(); renderPlacar(); renderTend(); renderCfg(); renderMarkers();
+    calcCarteira(); renderHeader(); renderEstado(); renderTable(); renderCarteira(); renderAlerta(); renderAlerta2h(); renderPlacar(); renderTend(); renderCfg(); renderMarkers();
     $("log").textContent = [...(S.lab.logs || []).map(x => "lab " + x), ...S.logs].join("\n");
   } catch (e) { $("srv").textContent = "servidor: sem resposta"; $("srv").className = "pill bad"; }
 }

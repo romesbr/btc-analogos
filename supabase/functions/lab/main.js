@@ -3,6 +3,7 @@ const H1 = 36e5, D1 = 864e5, FEE = 5e-4;
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}").default;
 const sb = createClient(Deno.env.get("SUPABASE_URL"), key, { auth: { persistSession: false } });
 let ATIVAS = /* @__PURE__ */ new Set();
+const PROTEGIDAS = /* @__PURE__ */ new Set(["oi-reversao", "longshort-extremo"]);
 const FAPI = "https://fapi.binance.com", SPOT = "https://data-api.binance.vision/api/v3";
 async function getJSON(url, headers = {}) {
   for (let i = 0; i < 3; i++) {
@@ -130,6 +131,12 @@ async function tendencia(log) {
 }
 async function abrir(hip, id, lado, preco, stop, alvo, expira, prev, nota, log) {
   if (!ATIVAS.has(hip)) return "hip\xF3tese desligada (s\xF3 leitura)";
+  if (PROTEGIDAS.has(hip)) {
+    const n = nyParts(Date.now());
+    const mm = (/* @__PURE__ */ new Date()).getUTCMinutes();
+    const hm = n.hour * 60 + mm;
+    if (!["Sat", "Sun"].includes(n.wd) && hm >= 8 * 60 + 30 && hm < 10 * 60 + 30) return "bloqueada: janela da abertura de Nova York (8h30\u201310h30 NY)";
+  }
   const ab = await must(sb.from("sugestoes").select("id").eq("status", "aberta").eq("hipotese", hip));
   if (ab.length) return "j\xE1 existe opera\xE7\xE3o aberta";
   const ja = await must(sb.from("sugestoes").select("id").eq("id", id));

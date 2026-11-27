@@ -8,6 +8,7 @@ const H1 = 3600e3, D1 = 86400e3, FEE = 0.0005;
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}").default;
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, key, { auth: { persistSession: false } });
 let ATIVAS = new Set<string>();
+const PROTEGIDAS = new Set(["oi-reversao", "longshort-extremo"]);
 const FAPI = "https://fapi.binance.com", SPOT = "https://data-api.binance.vision/api/v3";
 
 async function getJSON(url: string, headers: Record<string, string> = {}) {
@@ -93,6 +94,9 @@ async function tendencia(log: (m: string) => void) {
 // ---------------- C) hipóteses ao vivo (BTCUSDT perpétuo) ----------------
 async function abrir(hip: string, id: string, lado: number, preco: number, stop: number, alvo: number, expira: number, prev: number | null, nota: string, log: (m: string) => void) {
   if (!ATIVAS.has(hip)) return "hipótese desligada (só leitura)";
+  // proteção: hipóteses só-ao-vivo não abrem operação das 8h30 às 10h30 de NY em dias úteis (dados americanos + abertura)
+  if (PROTEGIDAS.has(hip)) { const n = nyParts(Date.now()); const mm = new Date().getUTCMinutes(); const hm = n.hour * 60 + mm;
+    if (!["Sat", "Sun"].includes(n.wd) && hm >= 8 * 60 + 30 && hm < 10 * 60 + 30) return "bloqueada: janela da abertura de Nova York (8h30–10h30 NY)"; }
   const ab = await must(sb.from("sugestoes").select("id").eq("status", "aberta").eq("hipotese", hip));
   if (ab.length) return "já existe operação aberta";
   const ja = await must(sb.from("sugestoes").select("id").eq("id", id));

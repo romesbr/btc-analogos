@@ -318,8 +318,12 @@ async function nyopen() {
   const bars = (data as any[]).map((r) => ({ t: +r[0], h: r[2], l: r[3], c: r[4], v: r[5] }));
   const evMs = (Core.eventsToMs(EVENTOS) as number[]).slice().sort((a, b) => a - b);
   const P = Alerta.preparar(bars), n = bars.length;
-  const fmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, weekday: "short", hour: "numeric" });
-  const ny = (ms: number) => { const p: any = {}; for (const x of fmt.formatToParts(new Date(ms))) p[x.type] = x.value; return { wd: p.weekday, h: (+p.hour) % 24 }; };
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "numeric" });
+  const offCache = new Map<number, number>(); // deslocamento de NY em horas, calculado uma vez por dia
+  const DIAS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const ny = (ms: number) => { const dia = Math.floor(ms / 864e5); let off = offCache.get(dia); if (off == null) { const hNY = +fmt.format(new Date(dia * 864e5 + 12 * H1)) % 24; off = hNY - 12; offCache.set(dia, off); } const loc = new Date(ms + off * H1); return { wd: DIAS[loc.getUTCDay()], h: loc.getUTCHours() }; };
+  const sdk = (i: number, k: number) => { const a = i + 1 - k, s = P.S1[i + 1] - P.S1[a], q = P.S2[i + 1] - P.S2[a]; return Math.sqrt((q - s * s / k) / (k - 1)); };
+  const dm = (nome: string, i: number) => { const { s, cs } = P.G[nome]; return s[i] - (cs[i + 1] - cs[i - 719]) / 720; };
   // alvo: maior excursão nas próximas 2 velas de 1h >= 2x a mediana das excursões de 2h dos 30 dias anteriores
   const E2 = new Float64Array(n).fill(NaN), R2 = new Float64Array(n).fill(NaN);
   for (let i = 0; i + 2 < n; i++) { const hi = Math.max(bars[i + 1].h, bars[i + 2].h), lo = Math.min(bars[i + 1].l, bars[i + 2].l); E2[i] = Math.max(Math.log(hi / bars[i].c), Math.log(bars[i].c / lo)); R2[i] = Math.log(bars[i + 2].c / bars[i].c); }
@@ -327,10 +331,11 @@ async function nyopen() {
   const rows: any[] = []; let ei = 0;
   for (let i = 9600; i + 2 < n; i++) {
     if (bars[i].t < t0) continue;
-    const win: number[] = []; for (let k = i - 2 - 719; k <= i - 2; k += 5) win.push(E2[k]); win.sort((a, b) => a - b); const med = win[Math.floor(win.length / 2)];
-    const f = Alerta.features(P, i, evMs); if (!f) continue;
+    const win: number[] = []; for (let k = i - 2 - 719; k <= i - 2; k += 10) win.push(E2[k]); win.sort((a, b) => a - b); const med = win[Math.floor(win.length / 2)];
+    const s720 = sdk(i, 720); const cl = (x: number) => Math.max(-5, Math.min(5, x));
+    const f = { rv24_720: cl(Math.log(sdk(i, 24) / s720)), rv168_720: cl(Math.log(sdk(i, 168) / s720)), comp8: cl(dm("rng8", i)), comp24: cl(dm("rng24", i)), vol4: cl(dm("lv4", i)), vol24: cl(dm("lv24", i)), fds: 0 };
     const dec = bars[i].t + H1, a = ny(dec), b = ny(dec + H1);
-    const util = !["Sat", "Sun"].includes(a.wd);
+    const util = !["Sat", "Sun"].includes(a.wd); f.fds = util ? 0 : 1;
     const abertura = util && (a.h === 9 || b.h === 9) ? 1 : 0; // as próximas 2h incluem 9h–10h de NY (abertura às 9h30)
     while (ei < evMs.length && evMs[ei] <= dec) ei++;
     const macro2 = ei < evMs.length && evMs[ei] - dec <= 2 * H1 ? 1 : 0;
